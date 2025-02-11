@@ -50,3 +50,21 @@ exposure:
   - '/eos/project/c/cicada-project/data/2023/Signal/DummyOutliers-Training.h5'
  validation:
   - '/eos/project/c/cicada-project/data/2023/Signal/DummyOutliers-Validation.h5'
+
+training:
+  inputs:
+  - '/eos/user/a/aji/archData/inputs_train.npy'
+  targets:
+  - '/eos/user/a/aji/archData/targets_train.npy'
+
+validation:
+  inputs:
+  - '/eos/user/a/aji/archData/inputs_val.npy'
+  targets:
+  - '/eos/user/a/aji/archData/targets_val.npy'
+
+evaluation:
+ - path:
+   - '/eos/user/a/aji/archData/ZB-2024-sampled-like-mc.h5'
+   name: 'Large sample with PU distro same as MC sample'
+   use: True

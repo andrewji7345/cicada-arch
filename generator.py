@@ -41,6 +41,26 @@ class RegionETGenerator:
         X = np.reshape(X, (-1, 18, 14, 1))
         return X
 
+    def get_data_npy(self, datasets_paths: List[Path]) -> npt.NDArray:
+        inputs = []
+        for dataset_path in datasets_paths:
+            inputs.append(
+                np.load(dataset_path)
+            )
+        X = np.concatenate(inputs)
+        X = np.reshape(X, (-1, 18, 14, 1))
+        return X
+
+    def get_targets_npy(self, datasets_paths: List[Path]) -> npt.NDArray:
+        inputs = []
+        for dataset_path in datasets_paths:
+            inputs.append(
+                np.load(dataset_path)
+            )
+        X = np.concatenate(inputs)
+        X = np.reshape(X, (-1, 1))
+        return X
+
     def get_data_split(
         self, datasets_paths: List[Path]
     ) -> Tuple[npt.NDArray, npt.NDArray, npt.NDArray]:

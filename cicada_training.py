@@ -35,9 +35,9 @@ def quantize(arr: npt.NDArray, precision: tuple = (16, 8)) -> npt.NDArray:
 
 
 def get_student_targets(
-    teacher: Model, gen: RegionETGenerator, X: npt.NDArray
+    teacher: Model, gen: RegionETGenerator, X: npt.NDArray, batch_size=512
 ) -> data.Dataset:
-    X_hat = teacher.predict(X, batch_size=512, verbose=0)
+    X_hat = teacher.predict(X, batch_size=batch_size, verbose=0)
     y = loss(X, X_hat)
     y = quantize(np.log(y) * 32)
     return gen.get_generator(X.reshape((-1, 252, 1)), y, 1024, True)

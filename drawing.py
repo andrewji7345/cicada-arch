@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import mplhep as hep
 import numpy as np
 import numpy.typing as npt
+import re
 
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
@@ -270,6 +271,38 @@ class Draw:
         plt.ylabel("Signal Efficiency")
         plt.legend(loc="center left", bbox_to_anchor=(1, 0.5))
         self._save_fig(name)
+    
+    def get_aucs(
+        self,
+        y_trues: List[npt.NDArray],
+        y_preds: List[npt.NDArray],
+        max_rate: float = 0.003,
+        min_rate: float = 0.000,
+        use_cut_rate: bool = False,
+        cv: int = 3,
+    ):
+        skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+        std_aucs, roc_aucs = [], []
+        for y_true, y_pred in zip(
+            y_trues, y_preds
+        ):
+            aucs = []
+            for _, indices in skf.split(y_pred, y_true):
+                fpr, tpr, _ = roc_curve(y_true[indices], y_pred[indices])
+                aucs.append(auc(fpr, tpr))
+            std_aucs.append(np.std(aucs))
+
+            fpr, tpr, _ = roc_curve(y_true, y_pred)
+            if use_cut_rate:
+                max_cut = np.nonzero(fpr >= max_rate)
+                min_cut = np.nonzero(fpr <= min_rate)
+                tpr = tpr[min_cut[0][-1]:max_cut[0][0]]
+                fpr = fpr[min_cut[0][-1]:max_cut[0][0]+1]
+                fpr = np.diff(fpr)
+                width = np.sum(fpr)
+                roc_aucs.append(np.sum(np.dot(tpr, fpr))/width)
+            else: roc_aucs.append(auc(fpr, tpr))
+        return roc_aucs, std_aucs
 
     def plot_compilation_error(
         self, scores_keras: npt.NDArray, scores_hls4ml: npt.NDArray, name: str
@@ -488,3 +521,67 @@ class Draw:
                 ax.get_yaxis().set_visible(False)
 
         self._save_fig(name)
+
+    def plot_study_2d(
+            self, 
+            x: npt.NDArray, 
+            y: npt.NDArray, 
+            xerr: npt.NDArray = None, 
+            yerr: npt.NDArray = None, 
+            xlabel: str = 'Objective 0', 
+            ylabel: str = 'Objective 1', 
+            to_enumerate: list = [], 
+            name: str = 'example_objectives', 
+    ):
+        x=np.reshape(np.array(x), (-1))
+        y=np.reshape(np.array(y), (-1))
+
+        plt.scatter(x, y, label=f'n = {x.shape[0]}')
+        for i in range(len(to_enumerate)):
+            plt.annotate(to_enumerate[i], (x[i], y[i]), size = 15)
+        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='none')
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.legend()
+        plt.title(f'{xlabel} vs {ylabel}')
+        
+        self._save_fig(name)
+
+    def plot_study_3d(
+            self, 
+            x: npt.NDArray, 
+            y: npt.NDArray, 
+            z: npt.NDArray, 
+            xerr: npt.NDArray = None, 
+            yerr: npt.NDArray = None, 
+            zerr: npt.NDArray = None, 
+            xlabel: str = 'Objective 0', 
+            ylabel: str = 'Objective 1', 
+            zlabel: str = 'Objective 2', 
+            to_enumerate: list = [], 
+            name: str = 'example_objectives', 
+    ):
+        x=np.reshape(np.array(x), (-1))
+        y=np.reshape(np.array(y), (-1))
+        z=np.reshape(np.array(z), (-1))
+        zmax=np.max(z)/1000.
+        z=z/zmax
+
+        fig, ax = plt.subplots()
+        scatter = ax.scatter(x, y, c='black', s=z, alpha=0.5)
+        for i in range(len(to_enumerate)):
+            ax.annotate(to_enumerate[i], (x[i], y[i]), size = 15)
+        handles, labels = scatter.legend_elements(prop="sizes", alpha=0.5)
+        for i in range(len(labels)):
+            temp = float(re.search(r'\d+', labels[i]).group()) * zmax
+            labels[i] = f'$\\mathdefault{{{temp}}}$'
+        legend1 = ax.legend(handles, labels, loc="upper right", title=f'{zlabel}', title_fontsize=20, fontsize=15)
+        ax.add_artist(legend1)
+        legend2 = ax.legend(loc="lower right", title=f"n = {x.shape[0]}", title_fontsize=20)
+        ax.errorbar(x, y, c='black', xerr=xerr, yerr=yerr, fmt='none')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'{xlabel} vs {ylabel} vs {zlabel}')
+        
+        self._save_fig(name)
+    
