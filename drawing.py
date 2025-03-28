@@ -1,11 +1,13 @@
 import hls4ml
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import mplhep as hep
 import numpy as np
 import numpy.typing as npt
 import re
+import pandas as pd
 
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
@@ -13,6 +15,7 @@ from pathlib import Path
 from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import StratifiedKFold
 from typing import List, Callable
+from paretoset import paretoset
 
 
 class Draw:
@@ -25,9 +28,11 @@ class Draw:
     def _parse_name(self, name: str) -> str:
         return name.replace(" ", "-").lower()
 
-    def _save_fig(self, name: str) -> None:
+    def _save_fig(self, name: str, bbox_extra_artists=None, bbox_inches='tight') -> None:
         plt.savefig(
-            f"{self.output_dir}/{self._parse_name(name)}.png", bbox_inches="tight"
+            f"{self.output_dir}/{self._parse_name(name)}.png",
+            bbox_inches=bbox_inches, 
+            bbox_extra_artists=bbox_extra_artists
         )
         if self.interactive:
             plt.show()
@@ -276,8 +281,8 @@ class Draw:
         self,
         y_trues: List[npt.NDArray],
         y_preds: List[npt.NDArray],
-        max_rate: float = 0.003,
-        min_rate: float = 0.000,
+        max_rate: float = 0.003/28.61,
+        min_rate: float = 0.0003/28.61,
         use_cut_rate: bool = False,
         cv: int = 3,
     ):
@@ -293,14 +298,25 @@ class Draw:
             std_aucs.append(np.std(aucs))
 
             fpr, tpr, _ = roc_curve(y_true, y_pred)
+            fpr = fpr.flatten()
+            tpr = tpr.flatten()
             if use_cut_rate:
-                max_cut = np.nonzero(fpr >= max_rate)
-                min_cut = np.nonzero(fpr <= min_rate)
-                tpr = tpr[min_cut[0][-1]:max_cut[0][0]]
-                fpr = fpr[min_cut[0][-1]:max_cut[0][0]+1]
+                min_ind = np.searchsorted(fpr, min_rate, side='right')
+                max_ind = np.searchsorted(fpr, max_rate, side='right')
+                tpr = tpr[min_ind:max_ind]
+                fpr = fpr[min_ind:max_ind+1]
+                tpr = np.clip(tpr, 0.01, 1.)
+                tpr = np.log10(tpr)
+                tpr = tpr+2
+                tpr = tpr/2.
+                fpr = np.log10(fpr)
                 fpr = np.diff(fpr)
                 width = np.sum(fpr)
-                roc_aucs.append(np.sum(np.dot(tpr, fpr))/width)
+                if width==0: 
+                    to_append = 0.
+                else:
+                    to_append = np.sum(np.dot(tpr, fpr))/width
+                roc_aucs.append(to_append)
             else: roc_aucs.append(auc(fpr, tpr))
         return roc_aucs, std_aucs
 
@@ -522,7 +538,7 @@ class Draw:
 
         self._save_fig(name)
 
-    def plot_study_2d(
+    def plot_2d(
             self, 
             x: npt.NDArray, 
             y: npt.NDArray, 
@@ -531,23 +547,80 @@ class Draw:
             xlabel: str = 'Objective 0', 
             ylabel: str = 'Objective 1', 
             to_enumerate: list = [], 
+            label_seeds: bool = True, 
             name: str = 'example_objectives', 
     ):
         x=np.reshape(np.array(x), (-1))
         y=np.reshape(np.array(y), (-1))
 
-        plt.scatter(x, y, label=f'n = {x.shape[0]}')
+        plt.scatter(x, y, label=f'n = {x.shape[0]}', color='black')
         for i in range(len(to_enumerate)):
-            plt.annotate(to_enumerate[i], (x[i], y[i]), size = 15)
+            plt.annotate(to_enumerate[i], (x[i], y[i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
+        if label_seeds:
+            for i in range(len(x)):
+                plt.annotate(i, (x[i], y[i]), size = 10, xytext = (0, -1.5), textcoords = 'offset fontsize')
         plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='none')
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.legend()
         plt.title(f'{xlabel} vs {ylabel}')
+
+        self._save_fig(name)
+        plt.clf()
+
+    def plot_2d_pareto(
+            self, 
+            name_x: str, 
+            name_y: str, 
+            trial_names: list = [], 
+            argname: str = '', 
+            to_enumerate: list = [], 
+            label_seeds: bool = True, 
+            show_non_pareto: bool = False, 
+            name: str = 'example_objectives', 
+    ):
+        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        if "AUC" in name_x and "Loss" in name_y:
+            op_x = "max"
+            op_y = "min"
+        elif "AUC" in name_y and "Loss" in name_x:
+            op_y = "max"
+            op_x = "min"
+        data = [pd.DataFrame({
+            name_x: x[i], 
+            name_y: y[i], 
+        }) for i in range(len(trial_names))]
+        mask = [paretoset(data[i], sense=[op_x, op_y]) for i in range(len(trial_names))]
+        pareto_data = [data[i][mask[i]] for i in range(len(trial_names))]
+
+        x_pareto=[pareto_data[i].get(name_x).to_numpy().flatten() for i in range(len(trial_names))]
+        y_pareto=[pareto_data[i].get(name_y).to_numpy().flatten() for i in range(len(trial_names))]
+        trial_names = [name.replace(".npy", "") for name in trial_names]
+
+        color=np.linspace(0, 1, num=len(trial_names))
+        viridis=mpl.colormaps['viridis'].resampled(len(trial_names))
+        color=[viridis(k) for k in color]
+        for i in range(len(trial_names)):
+            plt.plot(x_pareto[i][np.argsort(x_pareto[i])], y_pareto[i][np.argsort(x_pareto[i])], label=f'Pareto {trial_names[i]}: n = {x_pareto[i].shape[0]}', color=color[i], marker='o')
+            if show_non_pareto:
+                plt.scatter(x[i], y[i], label=f'All: n = {x[i].shape[0]}', color=color[i])
+                if label_seeds:
+                    for j in range(len(x[i])):
+                        plt.annotate(j, (x[i][j], y[i][j]), size = 10, xytext = (0, -1.5), textcoords = 'offset fontsize')
+        for i in range(len(to_enumerate)):
+                plt.annotate(to_enumerate[i], (x[0][i], y[0][i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
+        plt.xlabel(name_x)
+        plt.ylabel(name_y)
+        plt.legend()
+        plt.xlim(0, 40)
+        plt.ylim(-0.1, 0.9)
+        plt.title(f'{name_x} vs {name_y}')
         
         self._save_fig(name)
+        plt.clf()
 
-    def plot_study_3d(
+    def plot_3d(
             self, 
             x: npt.NDArray, 
             y: npt.NDArray, 
@@ -559,29 +632,133 @@ class Draw:
             ylabel: str = 'Objective 1', 
             zlabel: str = 'Objective 2', 
             to_enumerate: list = [], 
+            label_seeds: bool = True, 
             name: str = 'example_objectives', 
     ):
         x=np.reshape(np.array(x), (-1))
         y=np.reshape(np.array(y), (-1))
         z=np.reshape(np.array(z), (-1))
-        zmax=np.max(z)/1000.
+        zmax=np.max(z)/1500.
         z=z/zmax
 
         fig, ax = plt.subplots()
-        scatter = ax.scatter(x, y, c='black', s=z, alpha=0.5)
+        scatter = ax.scatter(x, y, c='black', s=z, alpha=0.5, label=f'n = {x.shape[0]}')
         for i in range(len(to_enumerate)):
-            ax.annotate(to_enumerate[i], (x[i], y[i]), size = 15)
+            ax.annotate(to_enumerate[i], (x[i], y[i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
         handles, labels = scatter.legend_elements(prop="sizes", alpha=0.5)
         for i in range(len(labels)):
-            temp = float(re.search(r'\d+', labels[i]).group()) * zmax
+            temp = int(float(re.search(r'\d+', labels[i]).group()) * zmax)
             labels[i] = f'$\\mathdefault{{{temp}}}$'
-        legend1 = ax.legend(handles, labels, loc="upper right", title=f'{zlabel}', title_fontsize=20, fontsize=15)
-        ax.add_artist(legend1)
-        legend2 = ax.legend(loc="lower right", title=f"n = {x.shape[0]}", title_fontsize=20)
+        if label_seeds:
+            for i in range(len(x)):
+                ax.annotate(i, (x[i], y[i]), size = 10, xytext = (0, -1.5), textcoords = 'offset fontsize')
+        ax.legend()
+        legend1 = ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1, 0.5), title=f'{zlabel}', title_fontsize=20, fontsize=15)
         ax.errorbar(x, y, c='black', xerr=xerr, yerr=yerr, fmt='none')
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
+        ax.set_title(f'{xlabel} vs {ylabel} vs {zlabel}, n = {x.shape[0]}')
+        
+        self._save_fig(name)
+        plt.clf()
+        
+    def plot_3d_pareto(
+            self, 
+            name_a: str, 
+            name_b: str, 
+            name_c: str, 
+            std_name_a: str, 
+            std_name_b: str, 
+            std_name_c: str, 
+            argname: str, 
+            to_enumerate: list = [], 
+            label_seeds: bool = True, 
+            name: str = 'example_objectives', 
+    ):
+        x = np.load(f'arch/{argname}/study_metrics/{name_a}').flatten()
+        y = np.load(f'arch/{argname}/study_metrics/{name_b}').flatten()
+        z = np.load(f'arch/{argname}/study_metrics/{name_c}').flatten()
+        if "parameters" in name_c:
+            z=z/100
+            name_c = name_c.replace("number", "100s")
+        if "(b)" in name_c:
+            z=z/1024
+            name_c = name_c.replace("(b)", "(kb)")
+        x_all = x.copy()
+        y_all = y.copy()
+
+        if std_name_a != None:
+            std_x = np.load(f'arch/{argname}/study_metrics/{std_name_a}').flatten()
+        else: std_x = np.zeros(len(x))
+        if std_name_b != None:
+            std_y = np.load(f'arch/{argname}/study_metrics/{std_name_b}').flatten()
+        else: std_y = np.zeros(len(y))
+        if std_name_c != None:
+            std_z = np.load(f'arch/{argname}/study_metrics/{std_name_c}').flatten()
+        else: std_z = np.zeros(len(z))
+        if "AUC" in name_a and "Loss" in name_b and "Size" in name_c:
+            op_x = "max"
+            op_y = "min"
+            op_z = "min"
+        elif "AUC" in name_b and "Loss" in name_a and "Size" in name_c:
+            op_x = "min"
+            op_y = "max"
+            op_z = "min"
+        data = pd.DataFrame({
+            name_a: x, 
+            name_b: y, 
+            name_c: z, 
+        })
+        std = pd.DataFrame({
+            std_name_a: std_x, 
+            std_name_b: std_y, 
+            std_name_c: std_z, 
+        })
+        mask = paretoset(data, sense=[op_x, op_y, op_z])
+        pareto_data = data[mask]
+        pareto_std = std[mask]
+
+        x_pareto=pareto_data.get(name_a).to_numpy().flatten()
+        y_pareto=pareto_data.get(name_b).to_numpy().flatten()
+        z_pareto=pareto_data.get(name_c).to_numpy().flatten()
+        std_x_pareto=pareto_std.get(std_name_a).to_numpy().flatten()
+        std_y_pareto=pareto_std.get(std_name_b).to_numpy().flatten()
+        std_z_pareto=pareto_std.get(std_name_c).to_numpy().flatten()
+        pareto_ind = np.argsort(x_pareto)
+        x = np.ma.array(x, mask=False)
+        x.mask[pareto_ind] = True
+        y = np.ma.array(y, mask=False)
+        y.mask[pareto_ind] = True
+        z = np.ma.array(z, mask=False)
+        z.mask[pareto_ind] = True
+        std_x = np.ma.array(std_x, mask=False)
+        std_x.mask[pareto_ind] = True
+        std_y = np.ma.array(std_y, mask=False)
+        std_y.mask[pareto_ind] = True
+        std_z = np.ma.array(std_z, mask=False)
+        std_z.mask[pareto_ind] = True
+        xlabel=name_a.replace(".npy", "")
+        ylabel=name_b.replace(".npy", "")
+        zlabel=name_c.replace(".npy", "")
+
+        fig, ax = plt.subplots()
+        ax.scatter(x_pareto[pareto_ind], y_pareto[pareto_ind], s=z_pareto[pareto_ind], label=f'Pareto: n = {x_pareto.shape[0]}', color = 'orange', alpha=0.5)
+        scatter = ax.scatter(x, y, s=z, label=f'All: n = {x.shape[0]+x_pareto.shape[0]}', color='black', alpha=0.5)
+        handles, labels = scatter.legend_elements(prop="sizes", alpha=0.5)
+        for i in range(len(to_enumerate)):
+            ax.annotate(to_enumerate[i], (x_all[i], y_all[i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
+        if label_seeds:
+            for i in range(len(x)):
+                ax.annotate(i, (x_all[i], y_all[i]), size = 10, xytext = (0, 0), textcoords = 'offset fontsize')
+        ax.errorbar(x, y, xerr=std_x, yerr=std_y, fmt='none', color = 'black')
+        ax.errorbar(x_pareto, y_pareto, xerr=std_x_pareto, yerr=std_y_pareto, fmt='none', color = 'orange')
+        ax.set_xlabel(xlabel)
+        ax.set_xlabel(ylabel)
+        ax.legend()
+        legend1 = ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1, 0.5), title=f'{zlabel}', title_fontsize=20, fontsize=15)
+        ax.set_xlim(0, 40)
+        ax.set_ylim(-0.1, 0.9)
         ax.set_title(f'{xlabel} vs {ylabel} vs {zlabel}')
         
         self._save_fig(name)
-    
+        plt.clf()

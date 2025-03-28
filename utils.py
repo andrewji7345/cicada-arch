@@ -1,7 +1,9 @@
 import argparse
 import os
+import shlex
 
 import numpy as np
+from pathlib import Path
 
 
 class IsReadableDir(argparse.Action):
@@ -58,7 +60,51 @@ class CreateFolder(argparse.Action):
         setattr(namespace, self.dest, folders)
 
 
+def save_to_npy(val, path):
+    if os.path.exists(path):
+        arr_temp = np.load(path)
+        arr_temp = np.append(arr_temp, val)
+    else:
+        arr_temp = np.array(val)
+    np.save(path, arr_temp)
+
+
 def predict_single_image(model, image):
     image = np.expand_dims(image, axis=0)
     pred = model.predict(image, verbose=False)
     return np.squeeze(pred, axis=0)
+
+def save_args(args):
+    """Save command-line arguments to a file, excluding 'name'."""
+    folder = Path(f"arch/{args.name}")
+    folder.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
+    args_file = folder / "args.txt"
+
+    # Convert args to a dictionary and exclude 'name'
+    arg_dict = {k: v for k, v in vars(args).items() if k != "name" and v is not False}
+
+    # Construct argument list
+    arg_list = []
+    for k, v in arg_dict.items():
+        arg_key = f"--{k.replace('_', '-')}"  # Convert underscores to dashes
+        if isinstance(v, bool):  # Only store True flags
+            if v:
+                arg_list.append(arg_key)
+        else:
+            arg_list.extend([arg_key, str(v)])
+
+    # Write args to file
+    with args_file.open("w") as f:
+        f.write(" ".join(arg_list) + "\n")
+
+def load_args(name):
+    """Load saved arguments for the given study."""
+    args_file = Path(f"arch/{name}/args.txt")
+    
+    if not args_file.exists():
+        raise FileNotFoundError(f"Arguments file not found: {args_file}")
+
+    with args_file.open() as f:
+        command_str = f.readline().strip()
+
+    return shlex.split(command_str)
