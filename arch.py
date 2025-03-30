@@ -179,7 +179,6 @@ def main(args) -> None:
                 to_save[name] = np.append(to_save[name], val)
                 pathname = f'arch/{args.name}/trial_metrics/{name}/{trial_id}.npy'
                 save_to_npy(val, pathname)
-                print(name)
 
         max_mean_auc, med_mean_auc, std_mean_auc, max_mean_auc_name, med_mean_auc_name, std_mean_auc_name = [], [], [], [], [], []
         for i in range(len(labels)):
@@ -223,14 +222,12 @@ def main(args) -> None:
         return stat[0], stat[-5], stat[-2], stat[-1]
 
     def get_aucs(model, trial_id, execution_id):
-        #with tf.device('/job:localhost/replica:0/task:0/device:CPU:0'):
         y_loss_background = model.predict(X_test.reshape(-1, 252, 1), batch_size=512, verbose=args.verbose)
         y_loss_background = np.nan_to_num(y_loss_background, nan=0.0, posinf=255, neginf=0)
         results = {'2023 Zero Bias' : y_loss_background}
         y_true, y_pred, inputs = [], [], []
         for name, data in X_signal.items():
             inputs.append(np.concatenate((data, X_test)))
-            #with tf.device('/job:localhost/replica:0/task:0/device:CPU:0'):
             y_loss = model.predict(data.reshape(-1, 252, 1), batch_size=512, verbose=args.verbose)
             y_loss = np.nan_to_num(y_loss, nan=0.0, posinf=255, neginf=0)
             results[name] = y_loss
