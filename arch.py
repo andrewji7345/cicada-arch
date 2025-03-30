@@ -106,10 +106,11 @@ def train_model(
 
 def main(args) -> None:
 
-    start_time = time.time()
-    max_time = 4 * 0.8 * args.epochs * args.executions
-
     def objective(trial, trial_id):
+
+        start_time = time.time()
+        max_time = 4 * 0.8 * args.epochs * args.executions
+
         to_save = { 
             'Mean Signal AUC (0.3-3 kHz)': np.array([]), 
             f'{labels[0]} AUC (0.3-3 kHz)': np.array([]),
@@ -117,6 +118,7 @@ def main(args) -> None:
             f'{labels[2]} AUC (0.3-3 kHz)': np.array([]),
             f'{labels[3]} AUC (0.3-3 kHz)': np.array([]),
             f'{labels[4]} AUC (0.3-3 kHz)': np.array([]),
+            f'{labels[5]} AUC (0.3-3 kHz)': np.array([]),
             'Validation Loss': np.array([]), 
             'Model Size (number of parameters)': np.array([]), 
             'Model Size (b)': np.array([]), 
@@ -131,14 +133,16 @@ def main(args) -> None:
                 model_gen = CNN_Trial((252,), execution_id)
                 model, size_b = model_gen.get_trial(trial)
                 model.compile(optimizer=Adam(learning_rate=0.001), loss='mae')
-                if size_b < 50000 or size_b > 100000: # Prune if too small or too large
-                    raise optuna.TrialPruned()
             elif args.type == 'bitbnn':
-                model = Bit_Binary_Trial((252,), args.type, execution_id).get_trial(trial)
+                model_gen = Bit_Binary_Trial((252,), args.type, execution_id)
+                model, size_b = model_gen.get_trial(trial)
                 model.compile(optimizer=Adam(learning_rate=0.001), loss="mae")
-            elif args.type[0] == 'b':
-                model = Binary_Trial((252,), args.type, execution_id).get_trial(trial)
+            elif args.type == 'bnn':
+                model_gen = Binary_Trial((252,), execution_id)
+                model, size_b = model_gen.get_trial(trial)
                 model.compile(optimizer=Adam(learning_rate=0.001), loss='mae')
+            if size_b < 50000 or size_b > 100000: # Prune if too small or too large
+                raise optuna.TrialPruned()
             es = EarlyStopping(monitor='val_loss', patience=3, baseline=10, start_from_epoch=10)
             log = CSVLogger(f"arch/{args.name}/models/{trial_id}-{execution_id}-training.log", append=True)
 
@@ -161,12 +165,12 @@ def main(args) -> None:
             n_params = model.count_params()
 
             for name, val in [
-                ['Mean Signal AUC (0.3-3 kHz)', mean_auc], 
-                [f'{labels[0]} AUC (0.3-3 kHz)', auc[0]], 
-                [f'{labels[1]} AUC (0.3-3 kHz)', auc[1]], 
-                [f'{labels[2]} AUC (0.3-3 kHz)', auc[2]], 
-                [f'{labels[3]} AUC (0.3-3 kHz)', auc[3]], 
-                [f'{labels[4]} AUC (0.3-3 kHz)', auc[4]], 
+                [f'{labels[0]} AUC (0.3-3 kHz)', mean_auc], 
+                [f'{labels[1]} AUC (0.3-3 kHz)', auc[0]], 
+                [f'{labels[2]} AUC (0.3-3 kHz)', auc[1]], 
+                [f'{labels[3]} AUC (0.3-3 kHz)', auc[2]], 
+                [f'{labels[4]} AUC (0.3-3 kHz)', auc[3]], 
+                [f'{labels[5]} AUC (0.3-3 kHz)', auc[4]], 
                 ['Validation Loss', history.history["val_loss"][-1]], 
                 ['Model Size (number of parameters)', n_params], 
                 ['Model Size (b)', size_b], 
@@ -175,67 +179,48 @@ def main(args) -> None:
                 to_save[name] = np.append(to_save[name], val)
                 pathname = f'arch/{args.name}/trial_metrics/{name}/{trial_id}.npy'
                 save_to_npy(val, pathname)
+                print(name)
 
-        max_mean_auc = np.max(to_save["Mean Signal AUC (0.3-3 kHz)"])
-        med_mean_auc = np.median(to_save["Mean Signal AUC (0.3-3 kHz)"])
-        std_mean_auc = np.std(to_save["Mean Signal AUC (0.3-3 kHz)"])
-        max_auc_0 = np.max(to_save[f"{labels[0]} AUC (0.3-3 kHz)"])
-        med_auc_0 = np.median(to_save[f"{labels[0]} AUC (0.3-3 kHz)"])
-        std_auc_0 = np.std(to_save[f"{labels[0]} AUC (0.3-3 kHz)"])
-        max_auc_1 = np.max(to_save[f"{labels[1]} AUC (0.3-3 kHz)"])
-        med_auc_1 = np.median(to_save[f"{labels[1]} AUC (0.3-3 kHz)"])
-        std_auc_1 = np.std(to_save[f"{labels[1]} AUC (0.3-3 kHz)"])
-        max_auc_2 = np.max(to_save[f"{labels[2]} AUC (0.3-3 kHz)"])
-        med_auc_2 = np.median(to_save[f"{labels[2]} AUC (0.3-3 kHz)"])
-        std_auc_2 = np.std(to_save[f"{labels[2]} AUC (0.3-3 kHz)"])
-        max_auc_3 = np.max(to_save[f"{labels[3]} AUC (0.3-3 kHz)"])
-        med_auc_3 = np.median(to_save[f"{labels[3]} AUC (0.3-3 kHz)"])
-        std_auc_3 = np.std(to_save[f"{labels[3]} AUC (0.3-3 kHz)"])
-        max_auc_4 = np.max(to_save[f"{labels[4]} AUC (0.3-3 kHz)"])
-        med_auc_4 = np.median(to_save[f"{labels[4]} AUC (0.3-3 kHz)"])
-        std_auc_4 = np.std(to_save[f"{labels[4]} AUC (0.3-3 kHz)"])
-        min_val_loss = np.min(to_save["Validation Loss"])
-        med_val_loss = np.median(to_save["Validation Loss"])
-        std_val_loss = np.std(to_save["Validation Loss"])
-        n_params = np.median(to_save["Model Size (number of parameters)"])
-        size_b = np.median(to_save["Model Size (b)"])
+        max_mean_auc, med_mean_auc, std_mean_auc, max_mean_auc_name, med_mean_auc_name, std_mean_auc_name = [], [], [], [], [], []
+        for i in range(len(labels)):
+            max_mean_auc_name.append(f"Max of {labels[i]} AUC (0.3-3 kHz)")
+            med_mean_auc_name.append(f"Mean of {labels[i]} AUC (0.3-3 kHz)")
+            std_mean_auc_name.append(f"Standard Deviation of {labels[i]} AUC (0.3-3 kHz)")
+            if (to_save[f"{labels[i]} AUC (0.3-3 kHz)"].size > 0):
+                max_mean_auc.append(np.max(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
+                med_mean_auc.append(np.median(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
+                std_mean_auc.append(np.std(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
+            else:
+                max_mean_auc.append(0.)
+                med_mean_auc.append(0.)
+                std_mean_auc.append(0.)
 
-        for name, arr in [
-            ['Max of Mean Signal AUCs (0.3-3 kHz)', [max_mean_auc]], 
-            ['Median of Mean Signal AUCs (0.3-3 kHz)', [med_mean_auc]], 
-            ['Standard Deviation of Mean Signal AUCs (0.3-3 kHz)', [std_mean_auc]], 
-            [f'Max of {labels[0]} AUCs (0.3-3 kHz)', [max_auc_0]], 
-            [f'Median of {labels[0]} AUCs (0.3-3 kHz)', [med_auc_0]], 
-            [f'Standard Deviation of {labels[0]} AUCs (0.3-3 kHz)', [std_auc_0]], 
-            [f'Max of {labels[1]} AUCs (0.3-3 kHz)', [max_auc_1]], 
-            [f'Median of {labels[1]} AUCs (0.3-3 kHz)', [med_auc_1]], 
-            [f'Standard Deviation of {labels[1]} AUCs (0.3-3 kHz)', [std_auc_1]], 
-            [f'Max of {labels[2]} AUCs (0.3-3 kHz)', [max_auc_2]], 
-            [f'Median of {labels[2]} AUCs (0.3-3 kHz)', [med_auc_2]], 
-            [f'Standard Deviation of {labels[2]} AUCs (0.3-3 kHz)', [std_auc_2]], 
-            [f'Max of {labels[3]} AUCs (0.3-3 kHz)', [max_auc_3]], 
-            [f'Median of {labels[3]} AUCs (0.3-3 kHz)', [med_auc_3]], 
-            [f'Standard Deviation of {labels[3]} AUCs (0.3-3 kHz)', [std_auc_3]], 
-            [f'Max of {labels[4]} AUCs (0.3-3 kHz)', [max_auc_4]], 
-            [f'Median of {labels[4]} AUCs (0.3-3 kHz)', [med_auc_4]], 
-            [f'Standard Deviation of {labels[4]} AUCs (0.3-3 kHz)', [std_auc_4]], 
-            ['Min of Validation Losses', [min_val_loss]], 
-            ['Median of Validation Losses', [med_val_loss]], 
-            ['Standard Deviation of Validation Losses', [std_val_loss]], 
-            ['Model Size (number of parameters)', [n_params]], 
-            ['Model Size (b)', [size_b]]
-            ]:
+        stat_name = max_mean_auc_name + med_mean_auc_name + std_mean_auc_name
+        stat = max_mean_auc + med_mean_auc + std_mean_auc
 
+        if (to_save["Validation Loss"].size > 0):
+            stat.append(np.min(to_save["Validation Loss"]))
+            stat.append(np.median(to_save["Validation Loss"]))
+            stat.append(np.std(to_save["Validation Loss"]))
+        else:
+            stat.append(40.)
+            stat.append(40.)
+            stat.append(0.)
+        stat.append(np.median(to_save["Model Size (number of parameters)"]))
+        stat.append(np.median(to_save["Model Size (b)"]))
+        stat_name = stat_name + ['Min of Validation Losses', 'Median of Validation Losses', 'Standard Deviation of Validation Losses', 'Model Size (number of parameters)', 'Model Size (b)']
+
+        for name, val in zip(stat_name, np.array(stat).flatten()):
             pathname = f'arch/{args.name}/study_metrics/{name}.npy'
-            save_to_npy(arr, pathname)
+            save_to_npy(val, pathname)
 
-        print(f'Med Mean AUC: {med_mean_auc} +- {std_mean_auc}; Max Mean AUC: {max_mean_auc}')
-        print(f'Med Val Loss: {med_val_loss} +- {std_val_loss}; Min Val Loss: {min_val_loss}')
-        print(f'n_params: {n_params}')
-        print(f'size_b: {size_b}')
-        print(f'Total time: {time.time()-start_time}\nTime per execution: {(time.time()-start_time)/args.executions}\nTime per trial: {(time.time()-start_time)/args.executions/args.epochs}')
+        print(f'Med Mean AUC: {stat[1]} +- {stat[2]}; Max Mean AUC: {stat[0]}')
+        print(f'Med Val Loss: {stat[-4]} +- {stat[-3]}; Min Val Loss: {stat[-5]}')
+        print(f'n_params: {stat[-2]}')
+        print(f'size_b: {stat[-1]}')
+        print(f'Total time: {time.time()-start_time}\nTime per execution: {(time.time()-start_time)/args.executions}\nTime per epoch: {(time.time()-start_time)/args.executions/args.epochs}')
 
-        return max_mean_auc, min_val_loss, n_params, size_b
+        return stat[0], stat[-5], stat[-2], stat[-1]
 
     def get_aucs(model, trial_id, execution_id):
         #with tf.device('/job:localhost/replica:0/task:0/device:CPU:0'):
@@ -262,6 +247,7 @@ def main(args) -> None:
 
     # Get labels
     labels = [
+        'Mean Signal', 
         'SUEP', 
         'H to Long Lived', 
         'VBHF to 2C', 
@@ -285,6 +271,7 @@ def main(args) -> None:
         f'arch/{args.name}/trial_metrics/{labels[2]} AUC (0.3-3 kHz)/', 
         f'arch/{args.name}/trial_metrics/{labels[3]} AUC (0.3-3 kHz)/', 
         f'arch/{args.name}/trial_metrics/{labels[4]} AUC (0.3-3 kHz)/', 
+        f'arch/{args.name}/trial_metrics/{labels[5]} AUC (0.3-3 kHz)/', 
         f'arch/{args.name}/trial_metrics/Validation Loss/', 
         f'arch/{args.name}/trial_metrics/Model Size (number of parameters)/', 
         f'arch/{args.name}/trial_metrics/Model Size (b)/', 
@@ -340,6 +327,7 @@ def main(args) -> None:
                 "kernel_height_0": 2, 
                 "stride_width_0": 2, 
                 "stride_height_0": 2, 
+                "use_bias_conv": False, 
                 "n_dense_units_0": 4, 
                 "q_kernel_conv_bits": 12, 
                 "q_kernel_conv_ints": 3, 
@@ -347,6 +335,35 @@ def main(args) -> None:
                 "q_kernel_dense_ints": 1, 
                 "q_bias_dense_bits": 8, 
                 "q_bias_dense_ints": 3, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v2
+        elif (args.type == 'bnn') and len(study.trials) < 2:
+            study.enqueue_trial({
+                "binary_type": "bnn", 
+                "n_conv_layers": 0, 
+                "n_dense_layers": 1, 
+                "n_layers": 1, 
+                "n_dense_units_0": 8, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v1
+            study.enqueue_trial({
+                "binary_type": "bnn", 
+                "n_conv_layers": 1, 
+                "n_dense_layers": 1, 
+                "n_layers": 2, 
+                "n_filters_0": 8, 
+                "kernel_width_0": 2, 
+                "kernel_height_0": 2, 
+                "stride_width_0": 2, 
+                "stride_height_0": 2, 
+                "use_bias_conv": False, 
+                "n_dense_units_0": 7, 
                 "q_activation_bits": 10, 
                 "q_activation_ints": 6, 
                 "shortcut": False, 
@@ -373,7 +390,7 @@ if __name__ == "__main__":
         "-y", "--type",
         type=str,
         default="cnn",
-        help="Type of model. One of cnn, vit, bnn, ban, bwn, bitbnn.",
+        help="Type of model. One of cnn, bnn, bitbnn.",
     )
     parser.add_argument(
         "--interactive",
