@@ -366,7 +366,7 @@ def main(args) -> None:
                 "shortcut": False, 
                 "dropout": 0., 
             }) # Include cicada_v2
-        study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, show_progress_bar=False)
+        study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, n_jobs=args.parallels, show_progress_bar=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="""CICADA training scripts""")
@@ -412,6 +412,12 @@ if __name__ == "__main__":
         type=int,
         help="Number of trials",
         default=10, 
+    )
+    parser.add_argument(
+        "-p", "--parallels",
+        type=int,
+        help="Number of parallel jobs",
+        default=1, 
     )
     parser.add_argument(
         "-v", "--verbose",

@@ -339,6 +339,12 @@ if __name__ == "__main__":
         default=10, 
     )
     parser.add_argument(
+        "-p", "--parallels",
+        type=int,
+        help="Number of trials",
+        default=1, 
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Output verbosity",
