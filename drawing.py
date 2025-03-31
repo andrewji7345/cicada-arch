@@ -679,8 +679,8 @@ class Draw:
         y = np.load(f'arch/{argname}/study_metrics/{name_b}').flatten()
         z = np.load(f'arch/{argname}/study_metrics/{name_c}').flatten()
         if "parameters" in name_c:
-            z=z/100
-            name_c = name_c.replace("number", "100s")
+            z=z/1000
+            name_c = name_c.replace("number", "1000s")
         if "(b)" in name_c:
             z=z/1024
             name_c = name_c.replace("(b)", "(kb)")

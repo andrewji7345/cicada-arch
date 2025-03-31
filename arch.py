@@ -183,7 +183,7 @@ def main(args) -> None:
         max_mean_auc, med_mean_auc, std_mean_auc, max_mean_auc_name, med_mean_auc_name, std_mean_auc_name = [], [], [], [], [], []
         for i in range(len(labels)):
             max_mean_auc_name.append(f"Max of {labels[i]} AUC (0.3-3 kHz)")
-            med_mean_auc_name.append(f"Mean of {labels[i]} AUC (0.3-3 kHz)")
+            med_mean_auc_name.append(f"Median of {labels[i]} AUC (0.3-3 kHz)")
             std_mean_auc_name.append(f"Standard Deviation of {labels[i]} AUC (0.3-3 kHz)")
             if (to_save[f"{labels[i]} AUC (0.3-3 kHz)"].size > 0):
                 max_mean_auc.append(np.max(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
