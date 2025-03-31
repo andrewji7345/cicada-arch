@@ -109,7 +109,6 @@ def main(args) -> None:
     def objective(trial, trial_id):
 
         start_time = time.time()
-        max_time = 4 * 0.8 * args.epochs * args.executions
 
         to_save = { 
             'Mean Signal AUC (0.3-3 kHz)': np.array([]), 
@@ -125,24 +124,22 @@ def main(args) -> None:
         }
 
         for i in tqdm(range(args.executions)):
-            if (time.time()-start_time) > max_time: break
+            if (time.time()-start_time) > max_time_trial: break
             execution_id = i
             
             # Compile
             if args.type == 'cnn':
                 model_gen = CNN_Trial((252,), execution_id)
                 model, size_b = model_gen.get_trial(trial)
-                model.compile(optimizer=Adam(learning_rate=0.001), loss='mae')
             elif args.type == 'bitbnn':
                 model_gen = Bit_Binary_Trial((252,), args.type, execution_id)
                 model, size_b = model_gen.get_trial(trial)
-                model.compile(optimizer=Adam(learning_rate=0.001), loss="mae")
             elif args.type == 'bnn':
                 model_gen = Binary_Trial((252,), execution_id)
                 model, size_b = model_gen.get_trial(trial)
-                model.compile(optimizer=Adam(learning_rate=0.001), loss='mae')
-            if size_b < 50000 or size_b > 100000: # Prune if too small or too large
+            if size_b < 50000 or size_b > 100000 or model==None: # Prune if too small or too large
                 raise optuna.TrialPruned()
+            model.compile(optimizer=Adam(learning_rate=0.001), loss='mae')
             es = EarlyStopping(monitor='val_loss', patience=3, baseline=10, start_from_epoch=10)
             log = CSVLogger(f"arch/{args.name}/models/{trial_id}-{execution_id}-training.log", append=True)
 
@@ -242,6 +239,20 @@ def main(args) -> None:
         roc_aucs, std_aucs = draw_execution.get_aucs(y_true, y_pred, use_cut_rate=True)
         return roc_aucs, std_aucs
 
+    total_start_time=time.time()
+    max_time_trial = 4 * args.epochs * args.executions
+
+    # Parse args.jobflavour and args.trials
+    if args.jobflavour=="espresso": max_allocated_time = 1200
+    elif args.jobflavour=="microcentury": max_allocated_time = 3600
+    elif args.jobflavour=="longlunch": max_allocated_time = 7200
+    elif args.jobflavour=="workday": max_allocated_time = 28800
+    elif args.jobflavour=="tomorrow": max_allocated_time = 86400
+    elif args.jobflavour=="testmatch": max_allocated_time = 259200
+    elif args.jobflavour=="nextweek": max_allocated_time = 604800
+    if args.trials==-1: trials = int(1e6)
+    else: trials = int(args.trials)
+
     # Get labels
     labels = [
         'Mean Signal', 
@@ -290,7 +301,8 @@ def main(args) -> None:
     storage_name = f"sqlite:///arch/{args.name}/{args.name}.db"
 
     # Optuna study; if parallelized, reload study after each iteration
-    for i in tqdm(range(args.trials)): # for parallelization
+    for i in tqdm(range(trials)): # for parallelization
+        if (time.time() - total_start_time > max_allocated_time - max_time_trial): return
         study = optuna.create_study(
             directions=['maximize', 'minimize', 'minimize', 'minimize'], 
             study_name=args.name, 
@@ -410,14 +422,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "-t", "--trials",
         type=int,
-        help="Number of trials",
-        default=10, 
+        help="Number of trials. If -1, will continue until max time is hit.",
+        default=-1, 
     )
     parser.add_argument(
         "-p", "--parallels",
         type=int,
         help="Number of parallel jobs",
         default=1, 
+    )
+    parser.add_argument(
+        "-j", "--jobflavour",
+        type=str,
+        help="Maximum time for the job. Uses the JobFlavour times from https://batchdocs.web.cern.ch/local/submit.html",
+        default="tomorrow", 
     )
     parser.add_argument(
         "-v", "--verbose",
