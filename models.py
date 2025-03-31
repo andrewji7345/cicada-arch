@@ -210,6 +210,7 @@ class CNN_Trial:
         if n_conv_layers > 0:
             conv_out_size = conv_out_size * n_filters[-1]
 
+        if conv_out_size < 2: return None, 0
         max_size = 0
         while 2 ** max_size <= conv_out_size:
             max_size = max_size + 1
@@ -440,6 +441,7 @@ class Binary_Trial:
         if n_conv_layers > 0:
             conv_out_size = conv_out_size * n_filters[-1]
 
+        if conv_out_size < 2: return None, 0
         max_size = 0
         while 2 ** max_size <= conv_out_size:
             max_size = max_size + 1

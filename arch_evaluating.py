@@ -345,6 +345,12 @@ if __name__ == "__main__":
         default=1, 
     )
     parser.add_argument(
+        "-j", "--jobflavour",
+        type=str,
+        help="Maximum time for the job. Uses the JobFlavour times from https://batchdocs.web.cern.ch/local/submit.html",
+        default="tomorrow", 
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Output verbosity",
