@@ -19,13 +19,55 @@ from tqdm import tqdm
 from tensorflow.keras.models import load_model
 from qkeras import quantized_bits
 
-from utils import IsValidFile, IsReadableDir, CreateFolder, predict_single_image, load_args
+from utils import IsValidFile, IsReadableDir, CreateFolder, predict_single_image, load_args, save_to_npy
 from drawing import Draw
 from generator import RegionETGenerator
 from cicada_evaluating import loss
 from arch import get_data, get_data_npy, get_targets_from_teacher, get_targets_from_npy
 
 def main(args):
+
+    def compile_study_metrics():
+        if os.path.isfile(f"arch/{args.name}/study_metrics/Min of Validation Losses.npy"): return
+        study_metric_names = {
+            'Max of H to Long Lived AUCs (0.3-3 kHz).npy',     'Median of VBHF to 2C AUCs (0.3-3 kHz).npy',
+            'Max of Mean Signal AUCs (0.3-3 kHz).npy',         'Min of Validation Losses.npy',
+            'Max of SUEP AUCs (0.3-3 kHz).npy',                'Model Size (b).npy',
+            'Max of SUSY GGBBH AUCs (0.3-3 kHz).npy',          'Model Size (number of parameters).npy',
+            'Max of TT AUCs (0.3-3 kHz).npy',                  'Standard Deviation of H to Long Lived AUCs (0.3-3 kHz).npy',
+            'Max of VBHF to 2C AUCs (0.3-3 kHz).npy',          'Standard Deviation of Mean Signal AUCs (0.3-3 kHz).npy',
+            'Median of H to Long Lived AUCs (0.3-3 kHz).npy',  'Standard Deviation of SUEP AUCs (0.3-3 kHz).npy',
+            'Median of Mean Signal AUCs (0.3-3 kHz).npy',      'Standard Deviation of SUSY GGBBH AUCs (0.3-3 kHz).npy',
+            'Median of SUEP AUCs (0.3-3 kHz).npy',             'Standard Deviation of TT AUCs (0.3-3 kHz).npy',
+            'Median of SUSY GGBBH AUCs (0.3-3 kHz).npy',       'Standard Deviation of Validation Losses.npy',
+            'Median of TT AUCs (0.3-3 kHz).npy',               'Standard Deviation of VBHF to 2C AUCs (0.3-3 kHz).npy',
+            'Median of Validation Losses.npy',
+        }
+        trial_metric_names = {
+            'H to Long Lived AUC (0.3-3 kHz)',  'Model Size (number of parameters)',  'TT AUC (0.3-3 kHz)',
+            'Mean Signal AUC (0.3-3 kHz)',      'SUEP AUC (0.3-3 kHz)',               'Validation Loss',
+            'Model Size (b)',                   'SUSY GGBBH AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
+        }
+        trial_names = os.listdir(f'arch/{args.name}/trial_metrics/Validation Loss')
+        trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
+        trial_names_temp_ind = np.argsort(trial_names_temp)
+        trial_names = [trial_names[i] for i in trial_names_temp_ind]
+
+        for trial_name in trial_names:
+            for study_metric_name in study_metric_names:
+                for trial_metric_name in trial_metric_names:
+                    if trial_metric_name.replace("AUC", "AUCs") in study_metric_name:
+                        x = np.load(f'arch/{args.name}/trial_metrics/{trial_metric_name}/{trial_name}').flatten()
+                        if "Max" in study_metric_name:
+                            save_to_npy(np.max(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                        elif "Min" in study_metric_name:
+                            save_to_npy(np.min(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                        elif "Median" in study_metric_name:
+                            save_to_npy(np.median(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                        elif "Standard Deviation" in study_metric_name:
+                            save_to_npy(np.std(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                        elif "Model Size" in study_metric_name:
+                            save_to_npy(np.median(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
 
     def search_plots():
         all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
@@ -50,8 +92,13 @@ def main(args):
         if args.type == 'cnn':
             to_enumerate = ['Cicada V1 (search)', 'Cicada V2 (search)']
 
+        pareto_3d_trials = []
+        loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
         for ((name_a, name_b, name_c), (std_name_a, std_name_b, std_name_c)) in zip(name_triples, std_triples):
             draw_study.plot_3d_pareto(name_a, name_b, name_c, std_name_a, std_name_b, std_name_c, args.name, label_seeds=False, name=f'{args.name}-all-and-pareto-{name_a.replace(".npy", "")}-{name_b.replace(".npy", "")}-{name_c.replace(".npy", "")}')
+            pareto_3d_trials.append([name_a, name_b, name_c] + draw_study.get_3d_pareto(name_a, name_b, name_c, args.name, loaded_study))
+
+        return pareto_3d_trials
 
     def trial_plots():
         names = [name for name in os.listdir(f'arch/{args.name}/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.name}/trial_metrics', name)) and ('AUC' not in name) and ('Model Size' not in name))]
@@ -63,12 +110,19 @@ def main(args):
             for j in range(len(auc_names)):
                 name_pairs.append((names[i], auc_names[j]))
         trial_names = os.listdir(f'arch/{args.name}/trial_metrics/Validation Loss')
+        trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
+        trial_names_temp_ind = np.argsort(trial_names_temp)
+        trial_names = [trial_names[i] for i in trial_names_temp_ind]
 
+        pareto_3d_executions = []
+        loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
         for (name_a, name_b) in name_pairs:
             for trial_name in trial_names:
-                draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=True, show_non_pareto=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
-            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, label_seeds=False, show_non_pareto=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
-                
+                draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
+            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, label_seeds=False, show_non_pareto=True, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+            pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_a, name_b, trial_names, args.name, loaded_study))
+        return pareto_3d_executions
+
     def evaluate_teacher(teacher):
         aucs, sizes, val_losses = [], [], []
         log = pd.read_csv(f"arch/{args.name}/models/{teacher.name}/training.log")
@@ -169,8 +223,9 @@ def main(args):
     draw_study = Draw(output_dir=f'arch/{args.name}/study_plots/', interactive=args.interactive)
 
     # Evaluate search
-    trial_plots()
-    search_plots()
+    compile_study_metrics()
+    best_trials = trial_plots()
+    best_executions = search_plots()
 
     if args.search_only == True:
         return

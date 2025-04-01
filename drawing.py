@@ -1,11 +1,14 @@
 import hls4ml
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import mplhep as hep
 import numpy as np
 import numpy.typing as npt
 import re
 import pandas as pd
+import optuna
 
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.patches import Patch
@@ -569,6 +572,84 @@ class Draw:
         plt.clf()
 
     def plot_2d_pareto(
+        self, 
+        name_x: str, 
+        name_y: str, 
+        trial_names: list = [], 
+        argname: str = '', 
+        to_enumerate: list = [], 
+        label_seeds: bool = True, 
+        show_non_pareto: bool = False, 
+        name: str = 'example_objectives'
+    ):
+        # Load metrics
+        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+
+        # Optimization direction
+        if "AUC" in name_x and "Loss" in name_y:
+            op_x, op_y = "max", "min"
+        elif "AUC" in name_y and "Loss" in name_x:
+            op_x, op_y = "min", "max"
+
+        # Compute Pareto sets
+        data = [pd.DataFrame({name_x: x[i], name_y: y[i]}) for i in range(len(trial_names))]
+        mask = [paretoset(data[i], sense=[op_x, op_y]) for i in range(len(trial_names))]
+        pareto_data = [data[i][mask[i]] for i in range(len(trial_names))]
+
+        x_pareto = [pareto_data[i].get(name_x).to_numpy().flatten() for i in range(len(trial_names))]
+        y_pareto = [pareto_data[i].get(name_y).to_numpy().flatten() for i in range(len(trial_names))]
+        trial_names = [name.replace(".npy", "") for name in trial_names]
+
+        # Define colormap (x values → viridis colormap)
+        cmap = mpl.colormaps['viridis'].resampled(len(trial_names))
+
+        # Plot Pareto and non-Pareto points
+        for i in range(len(trial_names)):
+            color = cmap(i / len(trial_names))  # Map trial index to color
+
+            # Sort Pareto points by x for better visualization
+            sorted_indices = np.argsort(x_pareto[i])
+            x_p_sorted, y_p_sorted = x_pareto[i][sorted_indices], y_pareto[i][sorted_indices]
+
+            # Plot Pareto front (larger markers, black edges)
+            plt.scatter(
+                x_p_sorted, y_p_sorted, 
+                s=100, c=[color], edgecolors='black', label=f'Pareto {trial_names[i]}', alpha=0.8
+            )
+
+            # Connect Pareto points with lines
+            plt.plot(
+                x_p_sorted, y_p_sorted, 
+                color=color, linestyle='-', linewidth=2, alpha=0.7
+            )
+
+            if show_non_pareto:
+                # Non-Pareto points (smaller markers, gray edges)
+                plt.scatter(
+                    x[i], y[i], 
+                    s=40, c=[color], edgecolors='gray', alpha=0.5, label=f'All {trial_names[i]}'
+                )
+
+                if label_seeds:
+                    for j in range(len(x[i])):
+                        plt.annotate(j, (x[i][j], y[i][j]), size=10, xytext=(0, -1.5), textcoords='offset fontsize')
+
+        # Annotate special points
+        for i in range(len(to_enumerate)):
+            plt.annotate(to_enumerate[i], (x[0][i], y[0][i]), size=15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
+
+        plt.xlabel(name_x)
+        plt.ylabel(name_y)
+        plt.legend()
+        plt.xlim(0, 40)
+        plt.ylim(-0.1, 0.9)
+        plt.title(f'{name_x} vs {name_y}')
+        
+        self._save_fig(name)
+        plt.clf()
+
+    def plot_2d_pareto_old(
             self, 
             name_x: str, 
             name_y: str, 
@@ -661,7 +742,7 @@ class Draw:
         
         self._save_fig(name)
         plt.clf()
-        
+
     def plot_3d_pareto(
             self, 
             name_a: str, 
@@ -678,24 +759,90 @@ class Draw:
         x = np.load(f'arch/{argname}/study_metrics/{name_a}').flatten()
         y = np.load(f'arch/{argname}/study_metrics/{name_b}').flatten()
         z = np.load(f'arch/{argname}/study_metrics/{name_c}').flatten()
+
         if "parameters" in name_c:
-            z=z/1000
+            z = z / 1000
             name_c = name_c.replace("number", "1000s")
         if "(b)" in name_c:
-            z=z/1024
+            z = z / 1024
             name_c = name_c.replace("(b)", "(kb)")
-        x_all = x.copy()
-        y_all = y.copy()
 
-        if std_name_a != None:
-            std_x = np.load(f'arch/{argname}/study_metrics/{std_name_a}').flatten()
-        else: std_x = np.zeros(len(x))
-        if std_name_b != None:
-            std_y = np.load(f'arch/{argname}/study_metrics/{std_name_b}').flatten()
-        else: std_y = np.zeros(len(y))
-        if std_name_c != None:
-            std_z = np.load(f'arch/{argname}/study_metrics/{std_name_c}').flatten()
-        else: std_z = np.zeros(len(z))
+        x_all, y_all = x.copy(), y.copy()
+
+        std_x = np.load(f'arch/{argname}/study_metrics/{std_name_a}').flatten() if std_name_a else np.zeros(len(x))
+        std_y = np.load(f'arch/{argname}/study_metrics/{std_name_b}').flatten() if std_name_b else np.zeros(len(y))
+        std_z = np.load(f'arch/{argname}/study_metrics/{std_name_c}').flatten() if std_name_c else np.zeros(len(z))
+
+        op_x, op_y, op_z = ("max", "min", "min") if "AUC" in name_a and "Loss" in name_b else ("min", "max", "min")
+
+        data = pd.DataFrame({name_a: x, name_b: y, name_c: z})
+        std = pd.DataFrame({std_name_a: std_x, std_name_b: std_y, std_name_c: std_z})
+
+        mask = paretoset(data, sense=[op_x, op_y, op_z])
+        pareto_data = data[mask]
+        pareto_std = std[mask]
+
+        # Get Pareto front points
+        x_pareto, y_pareto, z_pareto = pareto_data[name_a].to_numpy(), pareto_data[name_b].to_numpy(), pareto_data[name_c].to_numpy()
+        std_x_pareto, std_y_pareto = pareto_std[std_name_a].to_numpy(), pareto_std[std_name_b].to_numpy()
+
+        # Get non-Pareto front points
+        x_non_pareto, y_non_pareto, z_non_pareto = x[~mask], y[~mask], z[~mask]
+        std_x_non_pareto, std_y_non_pareto = std_x[~mask], std_y[~mask]
+
+        # Define colormap for z-axis values
+        norm = mcolors.Normalize(vmin=min(z), vmax=max(z))
+        cmap = cm.viridis
+
+        # Define sizes: Large for Pareto points, small for others
+        size_pareto = 150
+        size_non_pareto = 50
+
+        fig, ax = plt.subplots()
+
+        # Plot Pareto front points (color by z value, size large)
+        ax.scatter(x_pareto, y_pareto, c=cmap(norm(z_pareto)), s=size_pareto, label=f'Pareto: n = {len(x_pareto)}', alpha=0.8, edgecolors='black')
+
+        # Plot non-Pareto points (color by z value, size small)
+        ax.scatter(x_non_pareto, y_non_pareto, c=cmap(norm(z_non_pareto)), s=size_non_pareto, label=f'All: n = {len(x)}', alpha=0.5, edgecolors='gray')
+
+        # Add colorbar
+        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax)
+        cbar.set_label(name_c.replace(".npy", ""), fontsize=12)
+
+        # Annotate points if needed
+        if label_seeds:
+            for i in range(len(x_all)):
+                ax.annotate(i, (x_all[i], y_all[i]), size=10, xytext=(0, 0), textcoords="offset points")
+
+        # Error bars
+        ax.errorbar(x_non_pareto, y_non_pareto, xerr=std_x_non_pareto, yerr=std_y_non_pareto, fmt='none', color='black', alpha=0.5)
+        ax.errorbar(x_pareto, y_pareto, xerr=std_x_pareto, yerr=std_y_pareto, fmt='none', color='black', alpha=0.8)
+
+        ax.set_xlabel(name_a.replace(".npy", ""))
+        ax.set_ylabel(name_b.replace(".npy", ""))
+        ax.legend()
+        ax.set_xlim(0, 40)
+        ax.set_ylim(-0.1, 0.9)
+        ax.set_title(f'{name_a.replace(".npy", "")} vs {name_b.replace(".npy", "")} vs {name_c.replace(".npy", "")}')
+
+        self._save_fig(name)
+        plt.clf()
+
+    def get_3d_pareto(
+            self, 
+            name_a: str, 
+            name_b: str, 
+            name_c: str, 
+            argname: str, 
+            study, 
+    ):
+        x = np.load(f'arch/{argname}/study_metrics/{name_a}').flatten()
+        y = np.load(f'arch/{argname}/study_metrics/{name_b}').flatten()
+        z = np.load(f'arch/{argname}/study_metrics/{name_c}').flatten()
+
         if "AUC" in name_a and "Loss" in name_b and "Size" in name_c:
             op_x = "max"
             op_y = "min"
@@ -709,56 +856,79 @@ class Draw:
             name_b: y, 
             name_c: z, 
         })
-        std = pd.DataFrame({
-            std_name_a: std_x, 
-            std_name_b: std_y, 
-            std_name_c: std_z, 
-        })
         mask = paretoset(data, sense=[op_x, op_y, op_z])
         pareto_data = data[mask]
-        pareto_std = std[mask]
 
         x_pareto=pareto_data.get(name_a).to_numpy().flatten()
         y_pareto=pareto_data.get(name_b).to_numpy().flatten()
         z_pareto=pareto_data.get(name_c).to_numpy().flatten()
-        std_x_pareto=pareto_std.get(std_name_a).to_numpy().flatten()
-        std_y_pareto=pareto_std.get(std_name_b).to_numpy().flatten()
-        std_z_pareto=pareto_std.get(std_name_c).to_numpy().flatten()
         pareto_ind = np.argsort(x_pareto)
-        x = np.ma.array(x, mask=False)
-        x.mask[pareto_ind] = True
-        y = np.ma.array(y, mask=False)
-        y.mask[pareto_ind] = True
-        z = np.ma.array(z, mask=False)
-        z.mask[pareto_ind] = True
-        std_x = np.ma.array(std_x, mask=False)
-        std_x.mask[pareto_ind] = True
-        std_y = np.ma.array(std_y, mask=False)
-        std_y.mask[pareto_ind] = True
-        std_z = np.ma.array(std_z, mask=False)
-        std_z.mask[pareto_ind] = True
-        xlabel=name_a.replace(".npy", "")
-        ylabel=name_b.replace(".npy", "")
-        zlabel=name_c.replace(".npy", "")
-
-        fig, ax = plt.subplots()
-        ax.scatter(x_pareto[pareto_ind], y_pareto[pareto_ind], s=z_pareto[pareto_ind], label=f'Pareto: n = {x_pareto.shape[0]}', color = 'orange', alpha=0.5)
-        scatter = ax.scatter(x, y, s=z, label=f'All: n = {x.shape[0]+x_pareto.shape[0]}', color='black', alpha=0.5)
-        handles, labels = scatter.legend_elements(prop="sizes", alpha=0.5)
-        for i in range(len(to_enumerate)):
-            ax.annotate(to_enumerate[i], (x_all[i], y_all[i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
-        if label_seeds:
-            for i in range(len(x)):
-                ax.annotate(i, (x_all[i], y_all[i]), size = 10, xytext = (0, 0), textcoords = 'offset fontsize')
-        ax.errorbar(x, y, xerr=std_x, yerr=std_y, fmt='none', color = 'black')
-        ax.errorbar(x_pareto, y_pareto, xerr=std_x_pareto, yerr=std_y_pareto, fmt='none', color = 'orange')
-        ax.set_xlabel(xlabel)
-        ax.set_xlabel(ylabel)
-        ax.legend()
-        legend1 = ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1, 0.5), title=f'{zlabel}', title_fontsize=20, fontsize=15)
-        ax.set_xlim(0, 40)
-        ax.set_ylim(-0.1, 0.9)
-        ax.set_title(f'{xlabel} vs {ylabel} vs {zlabel}')
+        x_pareto=x_pareto[pareto_ind]
+        y_pareto=y_pareto[pareto_ind]
+        z_pareto=z_pareto[pareto_ind]
         
-        self._save_fig(name)
-        plt.clf()
+        trials_list = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL]
+        trials_list = [params for params, keep in zip(trials_list, mask) if keep]
+        trials_list = [trials_list[i] for i in pareto_ind.tolist()]
+        
+        return [x_pareto, y_pareto, z_pareto, trials_list]
+    
+    def get_3d_pareto_executions(
+            self, 
+            name_a: str, 
+            name_b: str, 
+            trial_names: List, 
+            argname: str, 
+            study, 
+    ):
+        size_n = np.load(f'arch/{argname}/study_metrics/Model Size (number of parameters).npy')
+        size_b = np.load(f'arch/{argname}/study_metrics/Model Size (b).npy')
+        name_c_n = 'Model Size (number of parameters)'
+        name_c_b = 'Model Size (b)'
+        x = np.array([])
+        y = np.array([])
+        z_n = np.array([])
+        z_b = np.array([])
+        trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL]
+        trials_list_all = []
+        for i in range(len(trial_names)):
+            x_new = np.load(f'arch/{argname}/trial_metrics/{name_a}/{trial_names[i]}').flatten()
+            y_new = np.load(f'arch/{argname}/trial_metrics/{name_b}/{trial_names[i]}').flatten()
+            x = np.append(x, x_new)
+            y = np.append(y, y_new)
+            z_n = np.append(z_n, np.ones(x_new.shape[-1]) * size_n[i])
+            z_b = np.append(z_b, np.ones(x_new.shape[-1]) * size_b[i])
+            for j in range(x_new.shape[-1]):
+                trials_list_all.append(trials[i])
+
+        if "AUC" in name_a and "Loss" in name_b:
+            op_x = "max"
+            op_y = "min"
+            op_z = "min"
+        elif "AUC" in name_b and "Loss" in name_a:
+            op_x = "min"
+            op_y = "max"
+            op_z = "min"
+        
+        pareto_set = []
+        for [name_c, z] in [[name_c_n, z_n], [name_c_b, z_b]]:
+            data = pd.DataFrame({
+                name_a: x, 
+                name_b: y, 
+                name_c: z,  
+            })
+            mask = paretoset(data, sense=[op_x, op_y, op_z])
+            pareto_data = data[mask]
+            x_pareto=pareto_data.get(name_a).to_numpy().flatten()
+            y_pareto=pareto_data.get(name_b).to_numpy().flatten()
+            z_pareto=pareto_data.get(name_c).to_numpy().flatten()
+            pareto_ind = np.argsort(x_pareto)
+            x_pareto=x_pareto[pareto_ind]
+            y_pareto=y_pareto[pareto_ind]
+            z_pareto=z_pareto[pareto_ind]
+            
+            trials_list = [params for params, keep in zip(trials_list_all, mask) if keep]
+            trials_list = [trials_list[i] for i in pareto_ind.tolist()]
+            pareto_set.append([x_pareto, y_pareto, z_pareto, trials_list])
+
+        return pareto_set

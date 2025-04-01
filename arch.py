@@ -177,46 +177,22 @@ def main(args) -> None:
                 pathname = f'arch/{args.name}/trial_metrics/{name}/{trial_id}.npy'
                 save_to_npy(val, pathname)
 
-        max_mean_auc, med_mean_auc, std_mean_auc, max_mean_auc_name, med_mean_auc_name, std_mean_auc_name = [], [], [], [], [], []
-        for i in range(len(labels)):
-            max_mean_auc_name.append(f"Max of {labels[i]} AUC (0.3-3 kHz)")
-            med_mean_auc_name.append(f"Median of {labels[i]} AUC (0.3-3 kHz)")
-            std_mean_auc_name.append(f"Standard Deviation of {labels[i]} AUC (0.3-3 kHz)")
-            if (to_save[f"{labels[i]} AUC (0.3-3 kHz)"].size > 0):
-                max_mean_auc.append(np.max(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
-                med_mean_auc.append(np.median(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
-                std_mean_auc.append(np.std(to_save[f"{labels[i]} AUC (0.3-3 kHz)"]))
-            else:
-                max_mean_auc.append(0.)
-                med_mean_auc.append(0.)
-                std_mean_auc.append(0.)
-
-        stat_name = max_mean_auc_name + med_mean_auc_name + std_mean_auc_name
-        stat = max_mean_auc + med_mean_auc + std_mean_auc
-
-        if (to_save["Validation Loss"].size > 0):
-            stat.append(np.min(to_save["Validation Loss"]))
-            stat.append(np.median(to_save["Validation Loss"]))
-            stat.append(np.std(to_save["Validation Loss"]))
-        else:
-            stat.append(40.)
-            stat.append(40.)
-            stat.append(0.)
-        stat.append(np.median(to_save["Model Size (number of parameters)"]))
-        stat.append(np.median(to_save["Model Size (b)"]))
-        stat_name = stat_name + ['Min of Validation Losses', 'Median of Validation Losses', 'Standard Deviation of Validation Losses', 'Model Size (number of parameters)', 'Model Size (b)']
-
-        for name, val in zip(stat_name, np.array(stat).flatten()):
-            pathname = f'arch/{args.name}/study_metrics/{name}.npy'
-            save_to_npy(val, pathname)
-
-        print(f'Med Mean AUC: {stat[1]} +- {stat[2]}; Max Mean AUC: {stat[0]}')
-        print(f'Med Val Loss: {stat[-4]} +- {stat[-3]}; Min Val Loss: {stat[-5]}')
-        print(f'n_params: {stat[-2]}')
-        print(f'size_b: {stat[-1]}')
         print(f'Total time: {time.time()-start_time}\nTime per execution: {(time.time()-start_time)/args.executions}\nTime per epoch: {(time.time()-start_time)/args.executions/args.epochs}')
 
-        return stat[0], stat[-5], stat[-2], stat[-1]
+        if to_save[f'{labels[0]} AUC (0.3-3 kHz)'].size > 0:
+            med_auc = np.median(to_save[f'{labels[0]} AUC (0.3-3 kHz)'])
+        else: med_auc = 0.
+        if to_save["Validation Loss"].size > 0:
+            med_val_loss = np.median(to_save["Validation Loss"])
+        else: med_val_loss = 40.
+        if to_save['Model Size (number of parameters)'].size > 0:
+            n_params = np.median(to_save["Validation Loss"])
+        else: n_params = np.nan
+        if to_save['Model Size (b)'].size > 0:
+            size_b = np.median(to_save['Model Size (b)'])
+        else: size_b = np.nan
+        
+        return med_auc, med_val_loss, n_params, size_b
 
     def get_aucs(model, trial_id, execution_id):
         y_loss_background = model.predict(X_test.reshape(-1, 252, 1), batch_size=512, verbose=args.verbose)
@@ -302,7 +278,7 @@ def main(args) -> None:
 
     # Optuna study; if parallelized, reload study after each iteration
     for i in tqdm(range(trials)): # for parallelization
-        if (time.time() - total_start_time > max_allocated_time - max_time_trial): return
+        if (time.time() - total_start_time > max_allocated_time - max_time_trial): break
         study = optuna.create_study(
             directions=['maximize', 'minimize', 'minimize', 'minimize'], 
             study_name=args.name, 
@@ -379,6 +355,7 @@ def main(args) -> None:
                 "dropout": 0., 
             }) # Include cicada_v2
         study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, n_jobs=args.parallels, show_progress_bar=False)
+    print(f'Total time: {time.time() - total_start_time}')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="""CICADA training scripts""")
