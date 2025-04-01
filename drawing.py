@@ -867,7 +867,7 @@ class Draw:
         y_pareto=y_pareto[pareto_ind]
         z_pareto=z_pareto[pareto_ind]
         
-        trials_list = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL]
+        trials_list = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
         trials_list = [params for params, keep in zip(trials_list, mask) if keep]
         trials_list = [trials_list[i] for i in pareto_ind.tolist()]
         
@@ -889,7 +889,7 @@ class Draw:
         y = np.array([])
         z_n = np.array([])
         z_b = np.array([])
-        trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL]
+        trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
         trials_list_all = []
         for i in range(len(trial_names)):
             x_new = np.load(f'arch/{argname}/trial_metrics/{name_a}/{trial_names[i]}').flatten()
