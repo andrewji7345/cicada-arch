@@ -109,13 +109,17 @@ def main(args):
         num_trials_to_add = len(existing_trials)
 
         # Copy initial trial metric files
+        trial_names = os.listdir(f'arch/run_0/trial_metrics/Validation Loss')
+        trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
+        trial_names_temp_ind = np.argsort(trial_names_temp)
+        trial_names = [trial_names[i] for i in trial_names_temp_ind]
         for trial_metric_name in trial_metric_names:
-            for trial_file, _ in get_sorted_trial_names(argname):
-                shutil.copyfile(f"arch/run_0/trial_metrics/{trial_metric_name}/{trial_file}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_file}")
+            for trial_name in trial_names:
+                shutil.copyfile(f"arch/run_0/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
 
         # Process remaining studies
         for i in range(1, batchsize):
-            if not os.path.exists(f'arch/run_{i}/run{i}.db'): continue
+            if not Path(f'arch/run_{i}/run_{i}.db').exists(): continue
             study_tmp = optuna.load_study(study_name=f'run_{i}', storage=f'sqlite:///arch/run_{i}/run_{i}.db')
 
             for trial in study_tmp.get_trials():
@@ -140,7 +144,7 @@ def main(args):
                     new_trial_id = num_trials_to_add
                     existing_trials[trial_params] = trial
 
-                    base_study.add_trial([trial])
+                    base_study.add_trial(trial)
 
                     for trial_metric_name in trial_metric_names:
                         from_file = f"arch/run_{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy" # might not work
@@ -150,12 +154,6 @@ def main(args):
                             shutil.copyfile(from_file, to_file)
 
                     num_trials_to_add += 1
-
-    def get_sorted_trial_names(argname):
-            """ Get sorted trial names from Validation Loss directory. """
-            trial_files = os.listdir(f'arch/{argname}/trial_metrics/Validation Loss')
-            trial_ids = np.array([int(name.replace('.npy', '')) for name in trial_files])
-            return sorted(zip(trial_files, trial_ids), key=lambda x: x[1])
 
     def search_plots():
         all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
@@ -517,5 +515,6 @@ if __name__ == "__main__":
         default=None, 
     )
     new_args = parser.parse_args()
-    loaded_args = load_args(new_args.name)
+    if new_args.batch != None: loaded_args = ['--config'] + ['misc/config.yml'] + ['--type'] + ['cnn'] + ['--epochs'] + ['25'] + ['--executions'] + ['50'] + ['--trials'] + ['-1'] + ['--parallels'] + ['1'] + ['--jobflavour'] + ['workday']
+    else: loaded_args = load_args(new_args.name)
     main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--batch'] + [f"{new_args.batch}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))

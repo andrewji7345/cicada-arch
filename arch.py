@@ -216,7 +216,7 @@ def main(args) -> None:
         return roc_aucs, std_aucs
 
     total_start_time=time.time()
-    max_time_trial = 4 * args.epochs * args.executions
+    max_time_trial = 4 * args.epochs * args.executions * 2
 
     # Parse args.jobflavour and args.trials
     if args.jobflavour=="espresso": max_allocated_time = 1200

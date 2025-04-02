@@ -649,58 +649,6 @@ class Draw:
         self._save_fig(name)
         plt.clf()
 
-    def plot_2d_pareto_old(
-            self, 
-            name_x: str, 
-            name_y: str, 
-            trial_names: list = [], 
-            argname: str = '', 
-            to_enumerate: list = [], 
-            label_seeds: bool = True, 
-            show_non_pareto: bool = False, 
-            name: str = 'example_objectives', 
-    ):
-        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
-        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
-        if "AUC" in name_x and "Loss" in name_y:
-            op_x = "max"
-            op_y = "min"
-        elif "AUC" in name_y and "Loss" in name_x:
-            op_y = "max"
-            op_x = "min"
-        data = [pd.DataFrame({
-            name_x: x[i], 
-            name_y: y[i], 
-        }) for i in range(len(trial_names))]
-        mask = [paretoset(data[i], sense=[op_x, op_y]) for i in range(len(trial_names))]
-        pareto_data = [data[i][mask[i]] for i in range(len(trial_names))]
-
-        x_pareto=[pareto_data[i].get(name_x).to_numpy().flatten() for i in range(len(trial_names))]
-        y_pareto=[pareto_data[i].get(name_y).to_numpy().flatten() for i in range(len(trial_names))]
-        trial_names = [name.replace(".npy", "") for name in trial_names]
-
-        color=np.linspace(0, 1, num=len(trial_names))
-        viridis=mpl.colormaps['viridis'].resampled(len(trial_names))
-        color=[viridis(k) for k in color]
-        for i in range(len(trial_names)):
-            plt.plot(x_pareto[i][np.argsort(x_pareto[i])], y_pareto[i][np.argsort(x_pareto[i])], label=f'Pareto {trial_names[i]}: n = {x_pareto[i].shape[0]}', color=color[i], marker='o')
-            if show_non_pareto:
-                plt.scatter(x[i], y[i], label=f'All: n = {x[i].shape[0]}', color=color[i])
-                if label_seeds:
-                    for j in range(len(x[i])):
-                        plt.annotate(j, (x[i][j], y[i][j]), size = 10, xytext = (0, -1.5), textcoords = 'offset fontsize')
-        for i in range(len(to_enumerate)):
-                plt.annotate(to_enumerate[i], (x[0][i], y[0][i]), size = 15, xytext=(-2.5, 0.5), textcoords='offset fontsize')
-        plt.xlabel(name_x)
-        plt.ylabel(name_y)
-        plt.legend()
-        plt.xlim(0, 40)
-        plt.ylim(-0.1, 0.9)
-        plt.title(f'{name_x} vs {name_y}')
-        
-        self._save_fig(name)
-        plt.clf()
-
     def plot_3d(
             self, 
             x: npt.NDArray, 
@@ -823,7 +771,7 @@ class Draw:
 
         ax.set_xlabel(name_a.replace(".npy", ""))
         ax.set_ylabel(name_b.replace(".npy", ""))
-        ax.legend()
+        #ax.legend()
         ax.set_xlim(0, 40)
         ax.set_ylim(-0.1, 0.9)
         ax.set_title(f'{name_a.replace(".npy", "")} vs {name_b.replace(".npy", "")} vs {name_c.replace(".npy", "")}')
