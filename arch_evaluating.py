@@ -27,8 +27,8 @@ from arch import get_data, get_data_npy, get_targets_from_teacher, get_targets_f
 
 def main(args):
 
-    def compile_study_metrics():
-        if os.path.isfile(f"arch/{args.name}/study_metrics/Min of Validation Losses.npy"): return
+    def compile_study_metrics(argname):
+        if os.path.isfile(f"arch/{argname}/study_metrics/Min of Validation Losses.npy"): return
         study_metric_names = {
             'Max of H to Long Lived AUCs (0.3-3 kHz).npy',     'Median of VBHF to 2C AUCs (0.3-3 kHz).npy',
             'Max of Mean Signal AUCs (0.3-3 kHz).npy',         'Min of Validation Losses.npy',
@@ -48,7 +48,7 @@ def main(args):
             'Mean Signal AUC (0.3-3 kHz)',      'SUEP AUC (0.3-3 kHz)',               'Validation Loss',
             'Model Size (b)',                   'SUSY GGBBH AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
         }
-        trial_names = os.listdir(f'arch/{args.name}/trial_metrics/Validation Loss')
+        trial_names = os.listdir(f'arch/{argname}/trial_metrics/Validation Loss')
         trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
         trial_names_temp_ind = np.argsort(trial_names_temp)
         trial_names = [trial_names[i] for i in trial_names_temp_ind]
@@ -57,17 +57,105 @@ def main(args):
             for study_metric_name in study_metric_names:
                 for trial_metric_name in trial_metric_names:
                     if trial_metric_name.replace("AUC", "AUCs") in study_metric_name:
-                        x = np.load(f'arch/{args.name}/trial_metrics/{trial_metric_name}/{trial_name}').flatten()
+                        x = np.load(f'arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}').flatten()
                         if "Max" in study_metric_name:
-                            save_to_npy(np.max(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                            save_to_npy(np.max(x), f'arch/{argname}/study_metrics/{study_metric_name}')
                         elif "Min" in study_metric_name:
-                            save_to_npy(np.min(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                            save_to_npy(np.min(x), f'arch/{argname}/study_metrics/{study_metric_name}')
                         elif "Median" in study_metric_name:
-                            save_to_npy(np.median(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                            save_to_npy(np.median(x), f'arch/{argname}/study_metrics/{study_metric_name}')
                         elif "Standard Deviation" in study_metric_name:
-                            save_to_npy(np.std(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                            save_to_npy(np.std(x), f'arch/{argname}/study_metrics/{study_metric_name}')
                         elif "Model Size" in study_metric_name:
-                            save_to_npy(np.median(x), f'arch/{args.name}/study_metrics/{study_metric_name}')
+                            save_to_npy(np.median(x), f'arch/{argname}/study_metrics/{study_metric_name}')
+
+    def compile_batch_study_metrics(argname, batchsize):
+        # Create folders
+        for foldername in [
+            'arch/', 
+            f'arch/{argname}/', 
+            f'arch/{argname}/study_plots/', 
+            f'arch/{argname}/trial_plots/', 
+            f'arch/{argname}/execution_plots/', 
+            f'arch/{argname}/models/', 
+            f'arch/{argname}/study_metrics/', 
+            f'arch/{argname}/trial_metrics/', 
+            f'arch/{argname}/trial_metrics/Mean Signal AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[0]} AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[1]} AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[2]} AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[3]} AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[4]} AUC (0.3-3 kHz)/', 
+            f'arch/{argname}/trial_metrics/{labels[5]} AUC (0.3-3 kHz)/', 
+            f'arch/{args.name}/trial_metrics/Validation Loss/', 
+            f'arch/{args.name}/trial_metrics/Model Size (number of parameters)/', 
+            f'arch/{args.name}/trial_metrics/Model Size (b)/', 
+            ]:
+            if not os.path.exists(foldername):
+                os.mkdir(foldername)
+
+        trial_metric_names = {
+            'H to Long Lived AUC (0.3-3 kHz)',  'Model Size (number of parameters)',  'TT AUC (0.3-3 kHz)',
+            'Mean Signal AUC (0.3-3 kHz)',      'SUEP AUC (0.3-3 kHz)',               'Validation Loss',
+            'Model Size (b)',                   'SUSY GGBBH AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
+        }
+        
+        # Copy the first study
+        optuna.copy_study(from_study_name='run_0', from_storage='sqlite:///arch/run_0/run_0.db', to_storage=f'sqlite:///arch/{argname}/{argname}.db', to_study_name=argname)
+        base_study = optuna.load_study(study_name=argname, storage=f'sqlite:///arch/{argname}/{argname}.db')
+        
+        # Dictionary to track trials based on hyperparameters
+        existing_trials = {tuple(trial.params.items()): trial for trial in base_study.get_trials()}
+        num_trials_to_add = len(existing_trials)
+
+        # Copy initial trial metric files
+        for trial_metric_name in trial_metric_names:
+            for trial_file, _ in get_sorted_trial_names(argname):
+                shutil.copyfile(f"arch/run_0/trial_metrics/{trial_metric_name}/{trial_file}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_file}")
+
+        # Process remaining studies
+        for i in range(1, batchsize):
+            if not os.path.exists(f'arch/run_{i}/run{i}.db'): continue
+            study_tmp = optuna.load_study(study_name=f'run_{i}', storage=f'sqlite:///arch/run_{i}/run_{i}.db')
+
+            for trial in study_tmp.get_trials():
+                trial_params = tuple(trial.params.items())  # Convert params to tuple for hashing
+
+                if trial_params in existing_trials:
+                    # Concatenate trial metric data instead of adding a new trial
+                    existing_trial_id = existing_trials[trial_params].number # might not work
+                    existing_trial_file = f"{existing_trial_id}.npy"
+
+                    for trial_metric_name in trial_metric_names:
+                        old_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{existing_trial_file}"
+                        new_file = f"arch/run_{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy" # might not work
+
+                        if os.path.exists(new_file):
+                            old_data = np.load(old_file) if os.path.exists(old_file) else np.array([])
+                            new_data = np.load(new_file)
+                            np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
+
+                else:
+                    # Copy metric files and add trial to study
+                    new_trial_id = num_trials_to_add
+                    existing_trials[trial_params] = trial
+
+                    base_study.add_trial([trial])
+
+                    for trial_metric_name in trial_metric_names:
+                        from_file = f"arch/run_{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy" # might not work
+                        to_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{new_trial_id}.npy"
+
+                        if os.path.exists(from_file):
+                            shutil.copyfile(from_file, to_file)
+
+                    num_trials_to_add += 1
+
+    def get_sorted_trial_names(argname):
+            """ Get sorted trial names from Validation Loss directory. """
+            trial_files = os.listdir(f'arch/{argname}/trial_metrics/Validation Loss')
+            trial_ids = np.array([int(name.replace('.npy', '')) for name in trial_files])
+            return sorted(zip(trial_files, trial_ids), key=lambda x: x[1])
 
     def search_plots():
         all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
@@ -217,13 +305,24 @@ def main(args):
 
         return aucs, sizes, val_losses
 
+    # Get labels
+    labels = [
+        'Mean Signal', 
+        'SUEP', 
+        'H to Long Lived', 
+        'VBHF to 2C', 
+        'TT', 
+        'SUSY GGBBH', 
+    ]
+
     config = yaml.safe_load(open(args.config))
 
     draw_trial = Draw(output_dir=f'arch/{args.name}/trial_plots/', interactive=args.interactive)
     draw_study = Draw(output_dir=f'arch/{args.name}/study_plots/', interactive=args.interactive)
 
-    # Evaluate search
-    compile_study_metrics()
+    if args.batch != None:
+        compile_batch_study_metrics(args.name, args.batch)
+    compile_study_metrics(args.name)
     best_trials = trial_plots()
     best_executions = search_plots()
 
@@ -345,12 +444,6 @@ if __name__ == "__main__":
         help="Path to directory w/ trained models",
     )
     parser.add_argument(
-        "--search_only", "-s",
-        type=bool,
-        default=True,
-        help="Only evaluate the search? Either True or False",
-    )
-    parser.add_argument(
         "--config", "-c",
         action=IsValidFile,
         type=Path,
@@ -411,6 +504,18 @@ if __name__ == "__main__":
         help="Output verbosity",
         default=False,
     )
+    parser.add_argument(
+        "--search_only", "-s",
+        type=bool,
+        default=True,
+        help="Only evaluate the search? Either True or False",
+    )
+    parser.add_argument(
+        "-b", "--batch",
+        type=int, 
+        help="Number of batch jobs to parse. If not a batch job, None.", 
+        default=None, 
+    )
     new_args = parser.parse_args()
     loaded_args = load_args(new_args.name)
-    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))
+    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--batch'] + [f"{new_args.batch}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))
