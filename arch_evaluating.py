@@ -13,6 +13,7 @@ import yaml
 import optuna
 import shutil
 import shlex
+import re
 
 from pathlib import Path
 from tqdm import tqdm
@@ -69,7 +70,19 @@ def main(args):
                         elif "Model Size" in study_metric_name:
                             save_to_npy(np.median(x), f'arch/{argname}/study_metrics/{study_metric_name}')
 
-    def compile_batch_study_metrics(argname, batchsize):
+    def compile_batch_study_metrics(argname, fromname, batchsize):
+        def checkifrunexists(i):
+            if not Path(f'arch/{fromname}{i}/{fromname}{i}.db').exists(): return False
+            else: return True
+
+        def checkiflossplotexists(id, j, k):
+            if not Path(f'arch/{fromname}{id}/execution_plots/training-history-{j}-{k}.png').exists(): return False
+            else: return True
+
+        def checkifrocplotexists(id, j, k):
+            if not Path(f'arch/{fromname}{id}/execution_plots/roc-{j}-{k}.png').exists(): return False
+            else: return True
+
         # Create folders
         for foldername in [
             'arch/', 
@@ -101,59 +114,103 @@ def main(args):
         }
         
         # Copy the first study
-        optuna.copy_study(from_study_name='run_0', from_storage='sqlite:///arch/run_0/run_0.db', to_storage=f'sqlite:///arch/{argname}/{argname}.db', to_study_name=argname)
+        first_id=0
+        for i in range(batchsize):
+            if checkifrunexists(i) == True:
+                first_id = i
+                break
+
+        optuna.copy_study(from_study_name=f'{fromname}{first_id}', from_storage=f'sqlite:///arch/{fromname}{first_id}/{fromname}{first_id}.db', to_storage=f'sqlite:///arch/{argname}/{argname}.db', to_study_name=argname)
         base_study = optuna.load_study(study_name=argname, storage=f'sqlite:///arch/{argname}/{argname}.db')
+        shutil.copyfile(f"arch/{fromname}{first_id}/args.txt", f"arch/{argname}/args.txt")
         
         # Dictionary to track trials based on hyperparameters
         existing_trials = {tuple(trial.params.items()): trial for trial in base_study.get_trials()}
         num_trials_to_add = len(existing_trials)
 
-        # Copy initial trial metric files
-        trial_names = os.listdir(f'arch/run_0/trial_metrics/Validation Loss')
+        # Copy initial trial metric files, execution plots
+        trial_names = os.listdir(f'arch/{fromname}{first_id}/trial_metrics/Validation Loss')
         trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
         trial_names_temp_ind = np.argsort(trial_names_temp)
         trial_names = [trial_names[i] for i in trial_names_temp_ind]
         for trial_metric_name in trial_metric_names:
             for trial_name in trial_names:
-                shutil.copyfile(f"arch/run_0/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
+                shutil.copyfile(f"arch/{fromname}{first_id}/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
+        for trial_name in trial_names:
+            trial_num = trial_name.replace('.npy', '')
+            n_executions = len([path for path in Path(f'arch/{fromname}{first_id}/execution_plots').glob(f'roc-{trial_num}-*.png')])
+            for i in range(n_executions):
+                if checkiflossplotexists(first_id, trial_num, i):
+                    shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/training-history-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/training-history-{trial_num}-{i}.png")
+                if checkifrocplotexists(first_id, trial_num, i):
+                    shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/roc-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/roc-{trial_num}-{i}.png")
 
         # Process remaining studies
-        for i in range(1, batchsize):
-            if not Path(f'arch/run_{i}/run_{i}.db').exists(): continue
-            study_tmp = optuna.load_study(study_name=f'run_{i}', storage=f'sqlite:///arch/run_{i}/run_{i}.db')
+        for i in range(first_id+1, batchsize):
+            if checkifrunexists(i):
+                study_tmp = optuna.load_study(study_name=f'{fromname}{i}', storage=f'sqlite:///arch/{fromname}{i}/{fromname}{i}.db')
 
-            for trial in study_tmp.get_trials():
-                trial_params = tuple(trial.params.items())  # Convert params to tuple for hashing
+                for j in range(len(study_tmp.get_trials())):
+                    trial = study_tmp.get_trials()[j]
+                    trial_params = tuple(trial.params.items())  # Convert params to tuple for hashing
 
-                if trial_params in existing_trials:
-                    # Concatenate trial metric data instead of adding a new trial
-                    existing_trial_id = existing_trials[trial_params].number # might not work
-                    existing_trial_file = f"{existing_trial_id}.npy"
+                    if trial_params in existing_trials:
+                        # Concatenate trial metric data instead of adding a new trial
+                        existing_trial_id = existing_trials[trial_params].number # might not work
+                        existing_trial_file = f"{existing_trial_id}.npy"
 
-                    for trial_metric_name in trial_metric_names:
-                        old_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{existing_trial_file}"
-                        new_file = f"arch/run_{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy" # might not work
+                        for trial_metric_name in trial_metric_names:
+                            old_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{existing_trial_file}"
+                            new_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
 
-                        if os.path.exists(new_file):
-                            old_data = np.load(old_file) if os.path.exists(old_file) else np.array([])
-                            new_data = np.load(new_file)
-                            np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
+                            if os.path.exists(new_file):
+                                old_data = np.load(old_file) if os.path.exists(old_file) else np.array([])
+                                new_data = np.load(new_file)
+                                np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
+                        
+                        old_trial_id = existing_trial_file.replace(".npy", "")
+                        #n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
+                        #n_executions_existing = len([path for path in Path(f'arch/{argname}/execution_plots').glob(f'roc-{old_trial_id}-*.png')])
 
-                else:
-                    # Copy metric files and add trial to study
-                    new_trial_id = num_trials_to_add
-                    existing_trials[trial_params] = trial
+                        def extract_execution_num(path):
+                            match = re.search(rf'roc-{j}-(\d+)\.png', path.name)
+                            return int(match.group(1)) if match else -1
 
-                    base_study.add_trial(trial)
+                        paths = sorted(Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png'), key=extract_execution_num)
+                        last_filename = paths[-1].name
+                        n_executions = int(re.search(rf'roc-{j}-(\d+)\.png', last_filename).group(1))
 
-                    for trial_metric_name in trial_metric_names:
-                        from_file = f"arch/run_{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy" # might not work
-                        to_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{new_trial_id}.npy"
+                        paths_existing = sorted(Path(f'arch/{argname}/execution_plots').glob(f'roc-{j}-*.png'), key=extract_execution_num)
+                        last_filename_existing = paths_existing[-1].name
+                        n_executions_existing = int(re.search(rf'roc-{old_trial_id}-(\d+)\.png', last_filename_existing).group(1))
 
-                        if os.path.exists(from_file):
-                            shutil.copyfile(from_file, to_file)
+                        for k in range(n_executions):
+                            shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{old_trial_id}-{k + n_executions_existing}.png")
+                            shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{old_trial_id}-{k + n_executions_existing}.png")
 
-                    num_trials_to_add += 1
+                    else:
+                        # Copy metric files and add trial to study
+                        new_trial_id = num_trials_to_add
+                        existing_trials[trial_params] = trial
+
+                        base_study.add_trial(trial)
+
+                        for trial_metric_name in trial_metric_names:
+                            from_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
+                            to_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{new_trial_id}.npy"
+
+                            if os.path.exists(from_file):
+                                shutil.copyfile(from_file, to_file)
+
+                        n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
+                        
+                        for k in range(n_executions):
+                            if checkiflossplotexists(i, j, k):
+                                shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{new_trial_id}-{k}.png")
+                            if checkifrocplotexists(i, j, k):
+                                shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{new_trial_id}-{k}.png")
+
+                        num_trials_to_add += 1
 
     def search_plots():
         all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
@@ -204,8 +261,8 @@ def main(args):
         loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
         for (name_a, name_b) in name_pairs:
             for trial_name in trial_names:
-                draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
-            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, label_seeds=False, show_non_pareto=True, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+                draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, show_legend=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
+            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
             pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_a, name_b, trial_names, args.name, loaded_study))
         return pareto_3d_executions
 
@@ -318,8 +375,8 @@ def main(args):
     draw_trial = Draw(output_dir=f'arch/{args.name}/trial_plots/', interactive=args.interactive)
     draw_study = Draw(output_dir=f'arch/{args.name}/study_plots/', interactive=args.interactive)
 
-    if args.batch != None:
-        compile_batch_study_metrics(args.name, args.batch)
+    if args.batch != 0:
+        compile_batch_study_metrics(args.name, args.fromname, args.batch)
     compile_study_metrics(args.name)
     best_trials = trial_plots()
     best_executions = search_plots()
@@ -511,10 +568,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "-b", "--batch",
         type=int, 
-        help="Number of batch jobs to parse. If not a batch job, None.", 
-        default=None, 
+        help="Number of batch jobs to parse. If not a batch job, 0.", 
+        default=0, 
+    )
+    parser.add_argument(
+        "--fromname", "-f",
+        type=str,
+        default="example",
+        help="Name of studies to read from (w/o index)",
     )
     new_args = parser.parse_args()
     if new_args.batch != None: loaded_args = ['--config'] + ['misc/config.yml'] + ['--type'] + ['cnn'] + ['--epochs'] + ['25'] + ['--executions'] + ['50'] + ['--trials'] + ['-1'] + ['--parallels'] + ['1'] + ['--jobflavour'] + ['workday']
     else: loaded_args = load_args(new_args.name)
-    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--batch'] + [f"{new_args.batch}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))
+    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--fromname'] + [f'{new_args.fromname}'] + ['--batch'] + [f"{new_args.batch}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))

@@ -577,9 +577,11 @@ class Draw:
         name_y: str, 
         trial_names: list = [], 
         argname: str = '', 
+        min_pareto_length: int = 0, 
         to_enumerate: list = [], 
         label_seeds: bool = True, 
         show_non_pareto: bool = False, 
+        show_legend: bool = True, 
         name: str = 'example_objectives'
     ):
         # Load metrics
@@ -595,6 +597,9 @@ class Draw:
         # Compute Pareto sets
         data = [pd.DataFrame({name_x: x[i], name_y: y[i]}) for i in range(len(trial_names))]
         mask = [paretoset(data[i], sense=[op_x, op_y]) for i in range(len(trial_names))]
+        for i in range(len(mask)):
+            if mask[i].sum() < min_pareto_length:
+                mask[i] = pd.Series([False] * len(mask[i]), index=data[i].index)
         pareto_data = [data[i][mask[i]] for i in range(len(trial_names))]
 
         x_pareto = [pareto_data[i].get(name_x).to_numpy().flatten() for i in range(len(trial_names))]
@@ -604,6 +609,7 @@ class Draw:
         # Define colormap (x values → viridis colormap)
         cmap = mpl.colormaps['viridis'].resampled(len(trial_names))
 
+        n = 0
         # Plot Pareto and non-Pareto points
         for i in range(len(trial_names)):
             color = cmap(i / len(trial_names))  # Map trial index to color
@@ -617,6 +623,7 @@ class Draw:
                 x_p_sorted, y_p_sorted, 
                 s=100, c=[color], edgecolors='black', label=f'Pareto {trial_names[i]}', alpha=0.8
             )
+            n += len(x_p_sorted)
 
             # Connect Pareto points with lines
             plt.plot(
@@ -630,6 +637,7 @@ class Draw:
                     x[i], y[i], 
                     s=40, c=[color], edgecolors='gray', alpha=0.5, label=f'All {trial_names[i]}'
                 )
+                n += len(x[i])
 
                 if label_seeds:
                     for j in range(len(x[i])):
@@ -641,10 +649,11 @@ class Draw:
 
         plt.xlabel(name_x)
         plt.ylabel(name_y)
-        plt.legend()
+        if show_legend:
+            plt.legend()
         plt.xlim(0, 40)
-        plt.ylim(-0.1, 0.9)
-        plt.title(f'{name_x} vs {name_y}')
+        plt.ylim(-0.1, 0.9)        
+        plt.title(f'{name_x} vs {name_y}, n={n}')
         
         self._save_fig(name)
         plt.clf()
@@ -701,6 +710,7 @@ class Draw:
             std_name_c: str, 
             argname: str, 
             to_enumerate: list = [], 
+            show_non_pareto: bool = False, 
             label_seeds: bool = True, 
             name: str = 'example_objectives', 
     ):
@@ -750,9 +760,12 @@ class Draw:
 
         # Plot Pareto front points (color by z value, size large)
         ax.scatter(x_pareto, y_pareto, c=cmap(norm(z_pareto)), s=size_pareto, label=f'Pareto: n = {len(x_pareto)}', alpha=0.8, edgecolors='black')
+        n = len(x_pareto)
 
-        # Plot non-Pareto points (color by z value, size small)
-        ax.scatter(x_non_pareto, y_non_pareto, c=cmap(norm(z_non_pareto)), s=size_non_pareto, label=f'All: n = {len(x)}', alpha=0.5, edgecolors='gray')
+        if show_non_pareto:
+            # Plot non-Pareto points (color by z value, size small)
+            ax.scatter(x_non_pareto, y_non_pareto, c=cmap(norm(z_non_pareto)), s=size_non_pareto, label=f'All: n = {len(x)}', alpha=0.5, edgecolors='gray')
+            n += len(x_non_pareto)
 
         # Add colorbar
         sm = cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -771,10 +784,10 @@ class Draw:
 
         ax.set_xlabel(name_a.replace(".npy", ""))
         ax.set_ylabel(name_b.replace(".npy", ""))
-        #ax.legend()
+        ax.legend()
         ax.set_xlim(0, 40)
         ax.set_ylim(-0.1, 0.9)
-        ax.set_title(f'{name_a.replace(".npy", "")} vs {name_b.replace(".npy", "")} vs {name_c.replace(".npy", "")}')
+        ax.set_title(f'{name_a.replace(".npy", "")} vs {name_b.replace(".npy", "")} vs {name_c.replace(".npy", "")}, n={n}')
 
         self._save_fig(name)
         plt.clf()
