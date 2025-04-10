@@ -14,6 +14,7 @@ from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
+from mpl_toolkits.mplot3d import Axes3D
 from pathlib import Path
 from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import StratifiedKFold
@@ -582,6 +583,7 @@ class Draw:
         label_seeds: bool = True, 
         show_non_pareto: bool = False, 
         show_legend: bool = True, 
+        zoom: bool = False, 
         name: str = 'example_objectives'
     ):
         # Load metrics
@@ -651,12 +653,182 @@ class Draw:
         plt.ylabel(name_y)
         if show_legend:
             plt.legend()
-        plt.xlim(0, 40)
+        if zoom: plt.xlim(0, 10)
+        else: plt.xlim(0, 40)
         plt.ylim(-0.1, 0.9)        
         plt.title(f'{name_x} vs {name_y}, n={n}')
         
         self._save_fig(name)
         plt.clf()
+
+    def plot_3d_pareto_executions(
+        self, 
+        name_x: str, 
+        name_y: str, 
+        name_z: str,
+        trial_names: list = [], 
+        argname: str = '', 
+        min_pareto_length: int = 0, 
+        to_enumerate: list = [], 
+        label_seeds: bool = True, 
+        zoom: bool = False,
+        name: str = 'example_objectives_3d'
+    ):
+        # Load metrics
+        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        
+        # Optimization direction
+        if "AUC" in name_x and "Loss" in name_y:
+            op_x, op_y = "max", "min"
+        elif "AUC" in name_y and "Loss" in name_x:
+            op_x, op_y = "min", "max"
+        op_z = "min"
+
+        # Compute Pareto sets
+        all_data = []
+        for i in range(len(trial_names)):
+            df = pd.DataFrame({
+                name_x: x[i],
+                name_y: y[i],
+                name_z: z[i],
+                'trial': trial_names[i],
+                'index_in_trial': list(range(len(x[i])))
+            })
+            all_data.append(df)
+        combined_data = pd.concat(all_data, ignore_index=True)
+
+        mask = paretoset(combined_data[[name_x, name_y, name_z]], sense=[op_x, op_y, op_z])
+        if mask.sum() < min_pareto_length:
+            mask[:] = False
+        pareto_data = combined_data[mask]
+
+        grouped = pareto_data.groupby('trial')
+
+        x_pareto = []
+        y_pareto = []
+        z_pareto = []
+
+        for trial_name in trial_names:
+            df = grouped.get_group(trial_name) if trial_name in grouped.groups else pd.DataFrame({name_x: [], name_y: [], name_z: []})
+            x_pareto.append(df[name_x].to_numpy())
+            y_pareto.append(df[name_y].to_numpy())
+            z_pareto.append(df[name_z].to_numpy())
+
+        # Plotting
+        fig=plt.figure()
+        ax=fig.add_subplot()
+
+        # Combine all Pareto points for colormap normalization
+        all_z_vals = np.concatenate([z.flatten() for z in z_pareto])
+        norm = mpl.colors.Normalize(vmin=np.min(all_z_vals), vmax=np.max(all_z_vals))
+        cmap = mpl.cm.viridis
+        mappable = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+        n = 0
+        pareto_trial_names = []
+        for i in range(len(trial_names)):
+            if len(z_pareto[i]) == 0: continue
+            sorted_indices = np.argsort(x_pareto[i])
+            x_p_sorted, y_p_sorted, z_p_sorted = x_pareto[i][sorted_indices], y_pareto[i][sorted_indices], z_pareto[i][sorted_indices]
+
+            colors = cmap(norm(z_p_sorted))
+            ax.scatter(
+                x_p_sorted, y_p_sorted,
+                c=colors, s=100, edgecolors='black', alpha=0.8
+            )
+            n += len(x_pareto[i])
+            pareto_trial_names.append(int(trial_names[i].replace('.npy', '')))
+
+            # Connect Pareto points with lines
+            plt.plot(
+                x_p_sorted, y_p_sorted, 
+                color=colors[0], linestyle='-', linewidth=2, alpha=0.7
+            )
+            
+        # Annotate selected points
+        for i in range(len(to_enumerate)):
+            ax.text(x[0][i], y[0][i], z[0][i], str(to_enumerate[i]), size=10)
+
+        ax.set_xlabel(name_x)
+        ax.set_ylabel(name_y)
+        if zoom: ax.set_xlim(0, 10)
+        else: ax.set_xlim(0, 40)
+        ax.set_ylim(-0.1, 0.9)
+        ax.set_title(f'{name_x} vs {name_y} vs {name_z}, n={n}')
+        fig.colorbar(mappable, ax=ax, label=name_z)
+
+        self._save_fig(name)
+        plt.clf()
+
+    def get_pareto_executions(
+        self, 
+        name_x: str,
+        name_y: str, 
+        name_z: str, 
+        argname: str,
+        trial_names: list,
+        min_pareto_length: int = 0
+        ):
+        """
+        Return Pareto-optimal executions based on roc_auc (maximize), loss (minimize), and size (minimize).
+        Each result includes the metrics and associated hyperparameters.
+        """
+
+        # Define objective directions
+        if "AUC" in name_x and "Loss" in name_y:
+            op_x, op_y = "max", "min"
+        elif "AUC" in name_y and "Loss" in name_x:
+            op_x, op_y = "min", "max"
+        op_z = "min"
+        
+        # Load metrics for each trial
+        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{t}').flatten() for t in trial_names]
+        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{t}').flatten() for t in trial_names]
+        z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{t}').flatten() for t in trial_names]
+
+        # Combine data across all trials into a single DataFrame
+        all_data = []
+        for i, trial in enumerate(trial_names):
+            df = pd.DataFrame({
+                name_x: x[i],
+                name_y: y[i],
+                name_z: z[i],
+                'trial': trial,
+                'index_in_trial': list(range(len(x[i])))
+            })
+            all_data.append(df)
+        combined_data = pd.concat(all_data, ignore_index=True)
+
+        # Apply Pareto front filter
+        mask = paretoset(combined_data[[name_x, name_y, name_z]], sense=[op_x, op_y, op_z])
+        if mask.sum() < min_pareto_length:
+            mask[:] = False
+        pareto_data = combined_data[mask]
+
+        # Load Optuna study
+        study = optuna.load_study(study_name=f"{argname}", storage=f"sqlite:///arch/{argname}/{argname}.db")
+        trials=study.get_trials()
+
+        output = []
+        for _, row in pareto_data.iterrows():
+            trial_name = row['trial']
+            index = int(row['index_in_trial'])
+
+            # Match trial ID from trial name (assumes name format "trial_{trial_id}")
+            trial_id = int(trial_name.replace('.npy', ''))
+            trial = trials[trial_id]
+
+            entry = [
+                row[name_x],
+                row[name_y],
+                row[name_z],
+                trial.params  # Dictionary of hyperparameters
+            ]
+            output.append(entry)
+
+        return output
 
     def plot_3d(
             self, 
@@ -842,14 +1014,11 @@ class Draw:
             argname: str, 
             study, 
     ):
-        size_n = np.load(f'arch/{argname}/study_metrics/Model Size (number of parameters).npy')
-        size_b = np.load(f'arch/{argname}/study_metrics/Model Size (b).npy')
-        name_c_n = 'Model Size (number of parameters)'
-        name_c_b = 'Model Size (b)'
+        size = np.load(f'arch/{argname}/study_metrics/Model Size (b).npy')
+        name_c = 'Model Size (b)'
         x = np.array([])
         y = np.array([])
-        z_n = np.array([])
-        z_b = np.array([])
+        z = np.array([])
         trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
         trials_list_all = []
         for i in range(len(trial_names)):
@@ -857,8 +1026,7 @@ class Draw:
             y_new = np.load(f'arch/{argname}/trial_metrics/{name_b}/{trial_names[i]}').flatten()
             x = np.append(x, x_new)
             y = np.append(y, y_new)
-            z_n = np.append(z_n, np.ones(x_new.shape[-1]) * size_n[i])
-            z_b = np.append(z_b, np.ones(x_new.shape[-1]) * size_b[i])
+            z = np.append(z, np.ones(x_new.shape[-1]) * size[i])
             for j in range(x_new.shape[-1]):
                 trials_list_all.append(trials[i])
 
@@ -872,24 +1040,23 @@ class Draw:
             op_z = "min"
         
         pareto_set = []
-        for [name_c, z] in [[name_c_n, z_n], [name_c_b, z_b]]:
-            data = pd.DataFrame({
-                name_a: x, 
-                name_b: y, 
-                name_c: z,  
-            })
-            mask = paretoset(data, sense=[op_x, op_y, op_z])
-            pareto_data = data[mask]
-            x_pareto=pareto_data.get(name_a).to_numpy().flatten()
-            y_pareto=pareto_data.get(name_b).to_numpy().flatten()
-            z_pareto=pareto_data.get(name_c).to_numpy().flatten()
-            pareto_ind = np.argsort(x_pareto)
-            x_pareto=x_pareto[pareto_ind]
-            y_pareto=y_pareto[pareto_ind]
-            z_pareto=z_pareto[pareto_ind]
-            
-            trials_list = [params for params, keep in zip(trials_list_all, mask) if keep]
-            trials_list = [trials_list[i] for i in pareto_ind.tolist()]
-            pareto_set.append([x_pareto, y_pareto, z_pareto, trials_list])
+        data = pd.DataFrame({
+            name_a: x, 
+            name_b: y, 
+            name_c: z,  
+        })
+        mask = paretoset(data, sense=[op_x, op_y, op_z])
+        pareto_data = data[mask]
+        x_pareto=pareto_data.get(name_a).to_numpy().flatten()
+        y_pareto=pareto_data.get(name_b).to_numpy().flatten()
+        z_pareto=pareto_data.get(name_c).to_numpy().flatten()
+        pareto_ind = np.argsort(x_pareto)
+        x_pareto=x_pareto[pareto_ind]
+        y_pareto=y_pareto[pareto_ind]
+        z_pareto=z_pareto[pareto_ind]
+        
+        trials_list = [params for params, keep in zip(trials_list_all, mask) if keep]
+        trials_list = [trials_list[i] for i in pareto_ind.tolist()]
+        pareto_set.append([x_pareto, y_pareto, z_pareto, trials_list])
 
         return pareto_set

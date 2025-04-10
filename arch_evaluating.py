@@ -14,6 +14,7 @@ import optuna
 import shutil
 import shlex
 import re
+import csv
 
 from pathlib import Path
 from tqdm import tqdm
@@ -28,26 +29,58 @@ from arch import get_data, get_data_npy, get_targets_from_teacher, get_targets_f
 
 def main(args):
 
+    def write_executions_to_csv(best_executions_global, output_filename=f"arch/{args.name}/{args.name}.csv"):
+        with open(output_filename, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+
+            for i in range(len(best_executions_global)):
+                signal_type = best_executions_global[i][1]
+                executions = best_executions_global[i][2:]
+
+                # Write block title row
+                writer.writerow([f"Signal Type: {signal_type}"])
+                
+                # Prepare the header
+                if executions:
+                    # Get the union of all hyperparameter keys across all executions
+                    all_keys = set()
+                    for exec in executions:
+                        all_keys.update(exec[3].keys())
+                    hyperparam_keys = sorted(all_keys)
+
+                    header = ['Validation Loss', 'Adjusted ROC AUC', 'Model Size (b)'] + hyperparam_keys
+                    writer.writerow(header)
+
+                    # Write each execution row
+                    for exec in executions:
+                        val_loss, auc, size, hyperparams = exec
+                        row = [val_loss, auc, size]
+                        # Add hyperparams in consistent order, with blanks if missing
+                        row += [hyperparams.get(k, "") for k in hyperparam_keys]
+                        writer.writerow(row)
+
+                writer.writerow([])  # Add a blank line between blocks
+
     def compile_study_metrics(argname):
         if os.path.isfile(f"arch/{argname}/study_metrics/Min of Validation Losses.npy"): return
         study_metric_names = {
             'Max of H to Long Lived AUCs (0.3-3 kHz).npy',     'Median of VBHF to 2C AUCs (0.3-3 kHz).npy',
             'Max of Mean Signal AUCs (0.3-3 kHz).npy',         'Min of Validation Losses.npy',
             'Max of SUEP AUCs (0.3-3 kHz).npy',                'Model Size (b).npy',
-            'Max of SUSY GGBBH AUCs (0.3-3 kHz).npy',          'Model Size (number of parameters).npy',
+            'Max of SUSY ggHbb AUCs (0.3-3 kHz).npy',          'Model Size (number of parameters).npy',
             'Max of TT AUCs (0.3-3 kHz).npy',                  'Standard Deviation of H to Long Lived AUCs (0.3-3 kHz).npy',
             'Max of VBHF to 2C AUCs (0.3-3 kHz).npy',          'Standard Deviation of Mean Signal AUCs (0.3-3 kHz).npy',
             'Median of H to Long Lived AUCs (0.3-3 kHz).npy',  'Standard Deviation of SUEP AUCs (0.3-3 kHz).npy',
-            'Median of Mean Signal AUCs (0.3-3 kHz).npy',      'Standard Deviation of SUSY GGBBH AUCs (0.3-3 kHz).npy',
+            'Median of Mean Signal AUCs (0.3-3 kHz).npy',      'Standard Deviation of SUSY ggHbb AUCs (0.3-3 kHz).npy',
             'Median of SUEP AUCs (0.3-3 kHz).npy',             'Standard Deviation of TT AUCs (0.3-3 kHz).npy',
-            'Median of SUSY GGBBH AUCs (0.3-3 kHz).npy',       'Standard Deviation of Validation Losses.npy',
+            'Median of SUSY ggHbb AUCs (0.3-3 kHz).npy',       'Standard Deviation of Validation Losses.npy',
             'Median of TT AUCs (0.3-3 kHz).npy',               'Standard Deviation of VBHF to 2C AUCs (0.3-3 kHz).npy',
             'Median of Validation Losses.npy',
         }
         trial_metric_names = {
             'H to Long Lived AUC (0.3-3 kHz)',  'Model Size (number of parameters)',  'TT AUC (0.3-3 kHz)',
             'Mean Signal AUC (0.3-3 kHz)',      'SUEP AUC (0.3-3 kHz)',               'Validation Loss',
-            'Model Size (b)',                   'SUSY GGBBH AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
+            'Model Size (b)',                   'SUSY ggHbb AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
         }
         trial_names = os.listdir(f'arch/{argname}/trial_metrics/Validation Loss')
         trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
@@ -110,7 +143,7 @@ def main(args):
         trial_metric_names = {
             'H to Long Lived AUC (0.3-3 kHz)',  'Model Size (number of parameters)',  'TT AUC (0.3-3 kHz)',
             'Mean Signal AUC (0.3-3 kHz)',      'SUEP AUC (0.3-3 kHz)',               'Validation Loss',
-            'Model Size (b)',                   'SUSY GGBBH AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
+            'Model Size (b)',                   'SUSY ggHbb AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
         }
         
         # Copy the first study
@@ -258,13 +291,18 @@ def main(args):
         trial_names = [trial_names[i] for i in trial_names_temp_ind]
 
         pareto_3d_executions = []
+        pareto_3d_executions_global = []
         loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
         for (name_a, name_b) in name_pairs:
             for trial_name in trial_names:
                 draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, show_legend=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
-            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=True, name=f'{args.name}-all-trials-all-and-pareto-zoom-{name_a}-{name_b}')
+            draw_trial.plot_3d_pareto_executions(name_a, name_b, f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=False, name=f'{args.name}-all-trials-and-pareto-over-all-trials-{name_a}-{name_b}')
+            draw_trial.plot_3d_pareto_executions(name_a, name_b, f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=True, name=f'{args.name}-all-trials-and-pareto-over-all-trials-zoom-{name_a}-{name_b}')
             pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_a, name_b, trial_names, args.name, loaded_study))
-        return pareto_3d_executions
+            pareto_3d_executions_global.append([name_a] + [name_b] + draw_trial.get_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', argname=args.name, trial_names=trial_names))
+        return pareto_3d_executions, pareto_3d_executions_global
 
     def evaluate_teacher(teacher):
         aucs, sizes, val_losses = [], [], []
@@ -367,7 +405,7 @@ def main(args):
         'H to Long Lived', 
         'VBHF to 2C', 
         'TT', 
-        'SUSY GGBBH', 
+        'SUSY ggHbb', 
     ]
 
     config = yaml.safe_load(open(args.config))
@@ -378,8 +416,9 @@ def main(args):
     if args.batch != 0:
         compile_batch_study_metrics(args.name, args.fromname, args.batch)
     compile_study_metrics(args.name)
-    best_trials = trial_plots()
-    best_executions = search_plots()
+    best_executions, best_executions_global = trial_plots()
+    best_trials = search_plots()
+    write_executions_to_csv(best_executions_global)
 
     if args.search_only == True:
         return

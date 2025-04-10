@@ -216,7 +216,7 @@ def main(args) -> None:
         return roc_aucs, std_aucs
 
     total_start_time=time.time()
-    max_time_trial = 4 * args.epochs * args.executions * 2
+    max_time_trial = 4 * args.epochs * args.executions * 4
 
     # Parse args.jobflavour and args.trials
     if args.jobflavour=="espresso": max_allocated_time = 1200
@@ -236,7 +236,7 @@ def main(args) -> None:
         'H to Long Lived', 
         'VBHF to 2C', 
         'TT', 
-        'SUSY GGBBH', 
+        'SUSY ggHbb', 
     ]
 
     # Create folders
@@ -286,74 +286,74 @@ def main(args) -> None:
             load_if_exists=True, 
         )
         trial_id = i
-        if (args.type == 'cnn') and len(study.trials) < 2:
-            study.enqueue_trial({
-                "n_conv_layers": 0, 
-                "n_dense_layers": 1, 
-                "n_layers": 1, 
-                "n_dense_units_0": 4, 
-                "q_kernel_conv_bits": 12, 
-                "q_kernel_conv_ints": 3, 
-                "q_kernel_dense_bits": 8, 
-                "q_kernel_dense_ints": 1, 
-                "q_bias_dense_bits": 8, 
-                "q_bias_dense_ints": 3, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v1
-            study.enqueue_trial({
-                "n_conv_layers": 1, 
-                "n_dense_layers": 1, 
-                "n_layers": 2, 
-                "n_filters_0": 4, 
-                "kernel_width_0": 2, 
-                "kernel_height_0": 2, 
-                "stride_width_0": 2, 
-                "stride_height_0": 2, 
-                "use_bias_conv": False, 
-                "n_dense_units_0": 4, 
-                "q_kernel_conv_bits": 12, 
-                "q_kernel_conv_ints": 3, 
-                "q_kernel_dense_bits": 8, 
-                "q_kernel_dense_ints": 1, 
-                "q_bias_dense_bits": 8, 
-                "q_bias_dense_ints": 3, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v2
-        elif (args.type == 'bnn') and len(study.trials) < 2:
-            study.enqueue_trial({
-                "binary_type": "bnn", 
-                "n_conv_layers": 0, 
-                "n_dense_layers": 1, 
-                "n_layers": 1, 
-                "n_dense_units_0": 8, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v1
-            study.enqueue_trial({
-                "binary_type": "bnn", 
-                "n_conv_layers": 1, 
-                "n_dense_layers": 1, 
-                "n_layers": 2, 
-                "n_filters_0": 8, 
-                "kernel_width_0": 2, 
-                "kernel_height_0": 2, 
-                "stride_width_0": 2, 
-                "stride_height_0": 2, 
-                "use_bias_conv": False, 
-                "n_dense_units_0": 7, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v2
+        #if (args.type == 'cnn') and len(study.trials) < 2:
+        #    study.enqueue_trial({
+        #        "n_conv_layers": 0, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 1, 
+        #        "n_dense_units_0": 4, 
+        #        "q_kernel_conv_bits": 12, 
+        #        "q_kernel_conv_ints": 3, 
+        #        "q_kernel_dense_bits": 8, 
+        #        "q_kernel_dense_ints": 1, 
+        #        "q_bias_dense_bits": 8, 
+        #        "q_bias_dense_ints": 3, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v1
+        #    study.enqueue_trial({
+        #        "n_conv_layers": 1, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 2, 
+        #        "n_filters_0": 4, 
+        #        "kernel_width_0": 2, 
+        #        "kernel_height_0": 2, 
+        #        "stride_width_0": 2, 
+        #        "stride_height_0": 2, 
+        #        "use_bias_conv": False, 
+        #        "n_dense_units_0": 4, 
+        #        "q_kernel_conv_bits": 12, 
+        #        "q_kernel_conv_ints": 3, 
+        #        "q_kernel_dense_bits": 8, 
+        #        "q_kernel_dense_ints": 1, 
+        #        "q_bias_dense_bits": 8, 
+        #        "q_bias_dense_ints": 3, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v2
+        #elif (args.type == 'bnn') and len(study.trials) < 2:
+        #    study.enqueue_trial({
+        #        "binary_type": "bnn", 
+        #        "n_conv_layers": 0, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 1, 
+        #        "n_dense_units_0": 8, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v1
+        #    study.enqueue_trial({
+        #        "binary_type": "bnn", 
+        #        "n_conv_layers": 1, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 2, 
+        #        "n_filters_0": 8, 
+        #        "kernel_width_0": 2, 
+        #        "kernel_height_0": 2, 
+        #        "stride_width_0": 2, 
+        #        "stride_height_0": 2, 
+        #        "use_bias_conv": False, 
+        #        "n_dense_units_0": 7, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v2
         study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, n_jobs=args.parallels, show_progress_bar=False)
     print(f'Total time: {time.time() - total_start_time}')
 
