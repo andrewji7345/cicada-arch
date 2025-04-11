@@ -12,7 +12,7 @@ def main(args) -> None:
         'H to Long Lived', 
         'VBHF to 2C', 
         'TT', 
-        'SUSY GGBBH', 
+        'SUSY ggHbb', 
     ]
 
     for foldername in [

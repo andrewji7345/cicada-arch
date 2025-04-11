@@ -7,6 +7,7 @@ import io
 import re
 import shlex
 import time
+import shutil
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -124,7 +125,8 @@ def main(args) -> None:
         }
 
         for i in tqdm(range(args.executions)):
-            if (time.time()-start_time) > max_time_trial: break
+            if (time.time()-start_time) > max_time_trial-max_time_execution: break
+            if (time.time() - total_start_time > max_allocated_time - max_time_trial): break
             execution_id = i
             
             # Compile
@@ -177,8 +179,6 @@ def main(args) -> None:
                 pathname = f'arch/{args.name}/trial_metrics/{name}/{trial_id}.npy'
                 save_to_npy(val, pathname)
 
-        print(f'Total time: {time.time()-start_time}\nTime per execution: {(time.time()-start_time)/args.executions}\nTime per epoch: {(time.time()-start_time)/args.executions/args.epochs}')
-
         if to_save[f'{labels[0]} AUC (0.3-3 kHz)'].size > 0:
             med_auc = np.median(to_save[f'{labels[0]} AUC (0.3-3 kHz)'])
         else: med_auc = 0.
@@ -186,7 +186,7 @@ def main(args) -> None:
             med_val_loss = np.median(to_save["Validation Loss"])
         else: med_val_loss = 40.
         if to_save['Model Size (number of parameters)'].size > 0:
-            n_params = np.median(to_save["Validation Loss"])
+            n_params = np.median(to_save["Model Size (number of parameters)"])
         else: n_params = np.nan
         if to_save['Model Size (b)'].size > 0:
             size_b = np.median(to_save['Model Size (b)'])
@@ -217,6 +217,7 @@ def main(args) -> None:
 
     total_start_time=time.time()
     max_time_trial = 4 * args.epochs * args.executions * 4
+    max_time_execution = 4 * args.epochs * 4
 
     # Parse args.jobflavour and args.trials
     if args.jobflavour=="espresso": max_allocated_time = 1200
@@ -226,6 +227,7 @@ def main(args) -> None:
     elif args.jobflavour=="tomorrow": max_allocated_time = 86400
     elif args.jobflavour=="testmatch": max_allocated_time = 259200
     elif args.jobflavour=="nextweek": max_allocated_time = 604800
+    max_allocated_time -= 300 # Allow for importing libraries and setting up environment
     if args.trials==-1: trials = int(1e6)
     else: trials = int(args.trials)
 
@@ -263,6 +265,10 @@ def main(args) -> None:
         if not os.path.exists(foldername):
             os.mkdir(foldername)
 
+    # Move existing db if exists
+    if Path(f'{args.name}.db').exists():
+        shutil.move(f"{args.name}.db", f"arch/{args.name}/{args.name}.db")
+
     # Load data, get student targets
     config = yaml.safe_load(open(args.config))
 
@@ -276,6 +282,18 @@ def main(args) -> None:
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     storage_name = f"sqlite:///arch/{args.name}/{args.name}.db"
 
+    study = optuna.create_study(
+            directions=['maximize', 'minimize', 'minimize', 'minimize'], 
+            study_name=args.name, 
+            storage=storage_name, 
+            load_if_exists=True, 
+        )
+
+    all_existing_trials = study.get_trials()
+    if len(all_existing_trials) == 2 and all_existing_trials[0].state.is_finished() == False and all_existing_trials[1].state.is_finished() == False:
+        num_existing_trials = 0
+    else: num_existing_trials = len(all_existing_trials)
+
     # Optuna study; if parallelized, reload study after each iteration
     for i in tqdm(range(trials)): # for parallelization
         if (time.time() - total_start_time > max_allocated_time - max_time_trial): break
@@ -285,75 +303,76 @@ def main(args) -> None:
             storage=storage_name, 
             load_if_exists=True, 
         )
-        trial_id = i
-        #if (args.type == 'cnn') and len(study.trials) < 2:
-        #    study.enqueue_trial({
-        #        "n_conv_layers": 0, 
-        #        "n_dense_layers": 1, 
-        #        "n_layers": 1, 
-        #        "n_dense_units_0": 4, 
-        #        "q_kernel_conv_bits": 12, 
-        #        "q_kernel_conv_ints": 3, 
-        #        "q_kernel_dense_bits": 8, 
-        #        "q_kernel_dense_ints": 1, 
-        #        "q_bias_dense_bits": 8, 
-        #        "q_bias_dense_ints": 3, 
-        #        "q_activation_bits": 10, 
-        #        "q_activation_ints": 6, 
-        #        "shortcut": False, 
-        #        "dropout": 0., 
-        #    }) # Include cicada_v1
-        #    study.enqueue_trial({
-        #        "n_conv_layers": 1, 
-        #        "n_dense_layers": 1, 
-        #        "n_layers": 2, 
-        #        "n_filters_0": 4, 
-        #        "kernel_width_0": 2, 
-        #        "kernel_height_0": 2, 
-        #        "stride_width_0": 2, 
-        #        "stride_height_0": 2, 
-        #        "use_bias_conv": False, 
-        #        "n_dense_units_0": 4, 
-        #        "q_kernel_conv_bits": 12, 
-        #        "q_kernel_conv_ints": 3, 
-        #        "q_kernel_dense_bits": 8, 
-        #        "q_kernel_dense_ints": 1, 
-        #        "q_bias_dense_bits": 8, 
-        #        "q_bias_dense_ints": 3, 
-        #        "q_activation_bits": 10, 
-        #        "q_activation_ints": 6, 
-        #        "shortcut": False, 
-        #        "dropout": 0., 
-        #    }) # Include cicada_v2
-        #elif (args.type == 'bnn') and len(study.trials) < 2:
-        #    study.enqueue_trial({
-        #        "binary_type": "bnn", 
-        #        "n_conv_layers": 0, 
-        #        "n_dense_layers": 1, 
-        #        "n_layers": 1, 
-        #        "n_dense_units_0": 8, 
-        #        "q_activation_bits": 10, 
-        #        "q_activation_ints": 6, 
-        #        "shortcut": False, 
-        #        "dropout": 0., 
-        #    }) # Include cicada_v1
-        #    study.enqueue_trial({
-        #        "binary_type": "bnn", 
-        #        "n_conv_layers": 1, 
-        #        "n_dense_layers": 1, 
-        #        "n_layers": 2, 
-        #        "n_filters_0": 8, 
-        #        "kernel_width_0": 2, 
-        #        "kernel_height_0": 2, 
-        #        "stride_width_0": 2, 
-        #        "stride_height_0": 2, 
-        #        "use_bias_conv": False, 
-        #        "n_dense_units_0": 7, 
-        #        "q_activation_bits": 10, 
-        #        "q_activation_ints": 6, 
-        #        "shortcut": False, 
-        #        "dropout": 0., 
-        #    }) # Include cicada_v2
+        #trial_id = len(study.get_trials())
+        trial_id = i + num_existing_trials
+        if (args.type == 'cnn') and len(study.trials) < 2:
+            study.enqueue_trial({
+                "n_conv_layers": 0, 
+                "n_dense_layers": 1, 
+                "n_layers": 1, 
+                "n_dense_units_0": 4, 
+                "q_kernel_conv_bits": 12, 
+                "q_kernel_conv_ints": 3, 
+                "q_kernel_dense_bits": 8, 
+                "q_kernel_dense_ints": 1, 
+                "q_bias_dense_bits": 8, 
+                "q_bias_dense_ints": 3, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v1
+            study.enqueue_trial({
+                "n_conv_layers": 1, 
+                "n_dense_layers": 1, 
+                "n_layers": 2, 
+                "n_filters_0": 4, 
+                "kernel_width_0": 2, 
+                "kernel_height_0": 2, 
+                "stride_width_0": 2, 
+                "stride_height_0": 2, 
+                "use_bias_conv": False, 
+                "n_dense_units_0": 4, 
+                "q_kernel_conv_bits": 12, 
+                "q_kernel_conv_ints": 3, 
+                "q_kernel_dense_bits": 8, 
+                "q_kernel_dense_ints": 1, 
+                "q_bias_dense_bits": 8, 
+                "q_bias_dense_ints": 3, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v2
+        elif (args.type == 'bnn') and len(study.trials) < 2:
+            study.enqueue_trial({
+                "binary_type": "bnn", 
+                "n_conv_layers": 0, 
+                "n_dense_layers": 1, 
+                "n_layers": 1, 
+                "n_dense_units_0": 8, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v1
+            study.enqueue_trial({
+                "binary_type": "bnn", 
+                "n_conv_layers": 1, 
+                "n_dense_layers": 1, 
+                "n_layers": 2, 
+                "n_filters_0": 8, 
+                "kernel_width_0": 2, 
+                "kernel_height_0": 2, 
+                "stride_width_0": 2, 
+                "stride_height_0": 2, 
+                "use_bias_conv": False, 
+                "n_dense_units_0": 7, 
+                "q_activation_bits": 10, 
+                "q_activation_ints": 6, 
+                "shortcut": False, 
+                "dropout": 0., 
+            }) # Include cicada_v2
         study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, n_jobs=args.parallels, show_progress_bar=False)
     print(f'Total time: {time.time() - total_start_time}')
 
