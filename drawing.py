@@ -52,6 +52,7 @@ class Draw:
         plt.legend(loc="upper right")
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
+        plt.ylim(0, 10)
         self._save_fig(name)
 
     def plot_loss_histories(

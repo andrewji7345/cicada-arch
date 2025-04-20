@@ -24,6 +24,7 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.initializers import HeNormal
 from qkeras import QActivation, QConv2D, QDense, QDenseBatchnorm, quantized_bits
 from larq.layers import QuantConv2D, QuantConv3D, QuantDense
+from larq.quantizers import SteSign
 
 
 class TeacherAutoencoder:
@@ -282,9 +283,105 @@ class CNN_Trial:
 
     def get_model(self, params):
 
-        for key in list(self.params.keys()):
-            if key in list(params.keys()):
-                self.params[key] = params[key]
+        for key in params.keys():
+            self.params[key] = params[key]
+
+        # Layers
+        n_conv_layers = self.params['n_conv_layers']
+        n_dense_layers = self.params['n_dense_layers']
+        n_layers = n_conv_layers + n_dense_layers
+
+        # Conv
+        n_filters = [self.params[f'n_filters_{i}'] for i in range(n_conv_layers)]
+        kernel_width = [self.params[f'kernel_width_{i}'] for i in range(n_conv_layers)]
+        kernel_height = [self.params[f'kernel_height_{i}'] for i in range(n_conv_layers)]
+        kernel_dims = np.stack((kernel_width, kernel_height), axis=-1)
+        stride_width, stride_height = [], []
+        for i in range(n_conv_layers):
+            stride_width.append(self.params[f'stride_width_{i}'])
+            stride_height.append(self.params[f'stride_height_{i}'])
+        stride_dims = np.stack((stride_width, stride_height), axis=-1)
+        if n_conv_layers>0: use_bias_conv = self.params["use_bias_conv"]
+
+        # Dense
+        conv_in_dims = [18, 14]
+        conv_out_dims = []
+        for i in range(len(conv_in_dims)):
+            conv_out_dim = conv_in_dims[i]
+            for j in range(n_conv_layers):
+                conv_out_dim = ((conv_out_dim-kernel_dims[j][i])//stride_dims[j][i])+1
+            conv_out_dims.append(conv_out_dim)
+        conv_out_size = np.prod(conv_out_dims)
+        if n_conv_layers > 0:
+            conv_out_size = conv_out_size * n_filters[-1]
+
+        if conv_out_size < 2: return None, 0
+        max_size = 0
+        while 2 ** max_size <= conv_out_size:
+            max_size = max_size + 1
+        if n_dense_layers > 0:
+            n_dense_units = []
+            for i in range(n_dense_layers):
+                n_dense_units.append(self.params[f'n_dense_units_{i}'])
+            n_dense_units = [2 ** n_dense_unit for n_dense_unit in n_dense_units]
+
+        # Quantizations
+        if n_conv_layers > 0:
+            q_kernel_conv_bits = self.params['q_kernel_conv_bits']
+            q_kernel_conv_ints = self.params['q_kernel_conv_ints']
+            if use_bias_conv:
+                q_bias_conv_bits = self.params['q_bias_conv_bits']
+                q_bias_conv_ints = self.params['q_bias_conv_ints']
+        if n_dense_layers > 0:
+            q_kernel_dense_bits = self.params['q_kernel_dense_bits']
+            q_kernel_dense_ints = self.params['q_kernel_dense_ints']
+            q_bias_dense_bits = self.params['q_bias_dense_bits']
+            q_bias_dense_ints = self.params['q_bias_dense_ints']
+        q_activation_bits = self.params['q_activation_bits']
+        q_activation_ints = self.params['q_activation_ints']
+        q_activation = f"quantized_relu({q_activation_bits}, {q_activation_ints})"
+
+        # Shortcut, dropout
+        shortcut = self.params['shortcut']
+        dropout = self.params['dropout']
+
+        for key, value in [
+            ["n_conv_layers", n_conv_layers],
+            ["n_dense_layers", n_dense_layers],
+            ["n_layers", n_layers],
+            ["q_activation", q_activation],
+            ["shortcut", shortcut],
+            ["dropout", dropout],
+            ]:
+            self.params.update({key: value})
+        
+        if n_conv_layers > 0:
+            for key, value in [
+                ["n_filters", n_filters],
+                ["kernel_dims", kernel_dims],
+                ["stride_dims", stride_dims],
+                ["use_bias_conv", use_bias_conv], 
+                ["q_kernel_conv_bits", q_kernel_conv_bits],
+                ["q_kernel_conv_ints", q_kernel_conv_ints],
+                ]:
+                self.params.update({key: value})
+
+            if use_bias_conv:
+                for key, value in [
+                    ["q_bias_conv_bits", q_bias_conv_bits],
+                    ["q_bias_conv_ints", q_bias_conv_ints],
+                    ]:
+                    self.params.update({key: value})
+        
+        if n_dense_layers > 0:
+            for key, value in [
+                ["n_dense_units", n_dense_units],
+                ["q_kernel_dense_bits", q_kernel_dense_bits],
+                ["q_kernel_dense_ints", q_kernel_dense_ints],
+                ["q_bias_dense_bits", q_bias_dense_bits],
+                ["q_bias_dense_ints", q_bias_dense_ints],
+                ]:
+                self.params.update({key: value})
 
         return self.create()
 
@@ -389,10 +486,10 @@ class CNN_Trial:
 
 
 class Binary_Trial:
-    def __init__(self, input_shape: tuple, id: int):
+    def __init__(self, input_shape: tuple, binary_type: str, id: int):
         self.params = {
             "input_shape": input_shape, 
-            "binary_type": "bnn", 
+            "binary_type": binary_type, 
             "n_conv_layers": 1, 
             "n_dense_layers": 1, 
             "n_layers": 2, 
@@ -490,9 +587,85 @@ class Binary_Trial:
 
     def get_model(self, params):
 
-        for key in list(self.params.keys()):
-            if key in list(params.keys()):
-                self.params[key] = params[key]
+        for key in params.keys():
+            self.params[key] = params[key]
+        
+        # Type
+        binary_type = self.params['binary_type']
+
+        # Layers
+        n_conv_layers = self.params['n_conv_layers']
+        n_dense_layers = self.params['n_dense_layers']
+        n_layers = n_conv_layers + n_dense_layers
+
+        # Conv
+        n_filters = [self.params[f'n_filters_{i}'] for i in range(n_conv_layers)]
+        kernel_width = [self.params[f'kernel_width_{i}'] for i in range(n_conv_layers)]
+        kernel_height = [self.params[f'kernel_height_{i}'] for i in range(n_conv_layers)]
+        kernel_dims = np.stack((kernel_width, kernel_height), axis=-1)
+        stride_width, stride_height = [], []
+        for i in range(n_conv_layers):
+            stride_width.append(self.params[f'stride_width_{i}'])
+            stride_height.append(self.params[f'stride_height_{i}'])
+        stride_dims = np.stack((stride_width, stride_height), axis=-1)
+        use_bias_conv = self.params["use_bias_conv"]
+
+        # Dense
+        conv_in_dims = [18, 14]
+        conv_out_dims = []
+        for i in range(len(conv_in_dims)):
+            conv_out_dim = conv_in_dims[i]
+            for j in range(n_conv_layers):
+                conv_out_dim = ((conv_out_dim-kernel_dims[j][i])//stride_dims[j][i])+1
+            conv_out_dims.append(conv_out_dim)
+        conv_out_size = np.prod(conv_out_dims)
+        if n_conv_layers > 0:
+            conv_out_size = conv_out_size * n_filters[-1]
+
+        if conv_out_size < 2: return None, 0
+        max_size = 0
+        while 2 ** max_size <= conv_out_size:
+            max_size = max_size + 1
+        if n_dense_layers > 0:
+            n_dense_units = [] # +4 relative to CNN_Trial; 8 bits per byte, extra factor of 2 for flexibility
+            for i in range(n_dense_layers):
+                n_dense_units.append(self.params[f'n_dense_units_{i}'])
+            n_dense_units = [2 ** n_dense_unit for n_dense_unit in n_dense_units]
+
+        # Quantizations
+        q_activation_bits = self.params['q_activation_bits']
+        q_activation_ints = self.params['q_activation_ints']
+        q_activation = f"quantized_relu({q_activation_bits}, {q_activation_ints})"
+
+        # Shortcut, dropout
+        shortcut = self.params['shortcut']
+        dropout = self.params['dropout']
+
+        for key, value in [
+            ["binary_type", binary_type], 
+            ["n_conv_layers", n_conv_layers],
+            ["n_dense_layers", n_dense_layers],
+            ["n_layers", n_layers],
+            ["q_activation", q_activation],
+            ["shortcut", shortcut],
+            ["dropout", dropout],
+            ]:
+            self.params.update({key: value})
+        
+        if n_conv_layers > 0:
+            for key, value in [
+                ["n_filters", n_filters],
+                ["kernel_dims", kernel_dims],
+                ["stride_dims", stride_dims],
+                ["use_bias_conv", use_bias_conv], 
+                ]:
+                self.params.update({key: value})
+        
+        if n_dense_layers > 0:
+            for key, value in [
+                ["n_dense_units", n_dense_units],
+                ]:
+                self.params.update({key: value})
 
         return self.create()
 
@@ -500,11 +673,11 @@ class Binary_Trial:
         if self.params["binary_type"] == 'ban':
             kernel_quantizer = None
         else:
-            kernel_quantizer = 'ste_sign'
+            kernel_quantizer = SteSign()
         if self.params["binary_type"] == 'bwn' or it == 0: # Don't binarize if first layer
             input_quantizer = None
         else:
-            input_quantizer = 'ste_sign'
+            input_quantizer = SteSign()
 
         if self.params["shortcut"]:
             cut = QConv2D(
@@ -549,11 +722,11 @@ class Binary_Trial:
         if self.params["binary_type"] == 'ban':
             kernel_quantizer = None
         else:
-            kernel_quantizer = 'ste_sign'
+            kernel_quantizer = SteSign()
         if self.params["binary_type"] == 'bwn' or it == 0:
             input_quantizer = None
         else:
-            input_quantizer = 'ste_sign'
+            input_quantizer = SteSign()
 
         input_dim = x.shape[-1]
         if self.params["shortcut"]:
@@ -567,6 +740,7 @@ class Binary_Trial:
 
             cut = BatchNormalization(momentum=0.9)(cut) # should be folded
 
+        #print(type(self.params["n_dense_units"][it]))
         x = QuantDense(
             self.params["n_dense_units"][it], 
             input_quantizer=input_quantizer, 
@@ -599,6 +773,7 @@ class Binary_Trial:
 
         # Input layer
         inputs = Input(shape=(self.params["input_shape"]), name="input")
+
         x = Reshape((18, 14, 1), name='reshape')(inputs)
 
         # Convolutional layers

@@ -169,14 +169,14 @@ def main(args):
         for trial_metric_name in trial_metric_names:
             for trial_name in trial_names:
                 shutil.copyfile(f"arch/{fromname}{first_id}/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
-        for trial_name in trial_names:
-            trial_num = trial_name.replace('.npy', '')
-            n_executions = len([path for path in Path(f'arch/{fromname}{first_id}/execution_plots').glob(f'roc-{trial_num}-*.png')])
-            for i in range(n_executions):
-                if checkiflossplotexists(first_id, trial_num, i):
-                    shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/training-history-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/training-history-{trial_num}-{i}.png")
-                if checkifrocplotexists(first_id, trial_num, i):
-                    shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/roc-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/roc-{trial_num}-{i}.png")
+        #for trial_name in trial_names:
+            #trial_num = trial_name.replace('.npy', '')
+            #n_executions = len([path for path in Path(f'arch/{fromname}{first_id}/execution_plots').glob(f'roc-{trial_num}-*.png')])
+            #for i in range(n_executions):
+            #    if checkiflossplotexists(first_id, trial_num, i):
+            #        shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/training-history-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/training-history-{trial_num}-{i}.png")
+            #    if checkifrocplotexists(first_id, trial_num, i):
+            #        shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/roc-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/roc-{trial_num}-{i}.png")
 
         # Process remaining studies
         for i in range(first_id+1, batchsize):
@@ -201,25 +201,28 @@ def main(args):
                                 new_data = np.load(new_file)
                                 np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
                         
-                        old_trial_id = existing_trial_file.replace(".npy", "")
+                        #old_trial_id = existing_trial_file.replace(".npy", "")
                         #n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
                         #n_executions_existing = len([path for path in Path(f'arch/{argname}/execution_plots').glob(f'roc-{old_trial_id}-*.png')])
 
-                        def extract_execution_num(path):
-                            match = re.search(rf'roc-{j}-(\d+)\.png', path.name)
-                            return int(match.group(1)) if match else -1
+                        #def extract_execution_num(path):
+                        #    match = re.search(rf'(\d+)\.npy', path.name)
+                        #    return int(match.group(1)) if match else -1
 
-                        paths = sorted(Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png'), key=extract_execution_num)
-                        last_filename = paths[-1].name
-                        n_executions = int(re.search(rf'roc-{j}-(\d+)\.png', last_filename).group(1))
+                        #paths = sorted(Path(f'arch/{fromname}{i}/trial_metrics').glob(f'*.npy'), key=extract_execution_num)
+                        #if len(paths) == 0: print(j); continue
+                        #last_filename = paths[-1].name
+                        #n_executions = len(np.load(f'arch/{fromname}{i}/trial_metrics/{last_filename}'))
+                        #n_executions = int(re.search(rf'roc-{j}-(\d+)\.png', last_filename).group(1))
 
-                        paths_existing = sorted(Path(f'arch/{argname}/execution_plots').glob(f'roc-{j}-*.png'), key=extract_execution_num)
-                        last_filename_existing = paths_existing[-1].name
-                        n_executions_existing = int(re.search(rf'roc-{old_trial_id}-(\d+)\.png', last_filename_existing).group(1))
+                        #paths_existing = sorted(Path(f'arch/{argname}/trial_metrics').glob(f'*.npy'), key=extract_execution_num)
+                        #last_filename_existing = paths_existing[-1].name
+                        #n_executions_existing = len(np.load(f'arch/{fromname}{i}/trial_metrics/{last_filename_existing}'))
+                        #n_executions_existing = int(re.search(rf'roc-{old_trial_id}-(\d+)\.png', last_filename_existing).group(1))
 
-                        for k in range(n_executions):
-                            shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{old_trial_id}-{k + n_executions_existing}.png")
-                            shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{old_trial_id}-{k + n_executions_existing}.png")
+                        #for k in range(n_executions):
+                        #    shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{old_trial_id}-{k + n_executions_existing}.png")
+                        #    shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{old_trial_id}-{k + n_executions_existing}.png")
 
                     else:
                         # Copy metric files and add trial to study
@@ -235,13 +238,13 @@ def main(args):
                             if os.path.exists(from_file):
                                 shutil.copyfile(from_file, to_file)
 
-                        n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
+                        #n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
                         
-                        for k in range(n_executions):
-                            if checkiflossplotexists(i, j, k):
-                                shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{new_trial_id}-{k}.png")
-                            if checkifrocplotexists(i, j, k):
-                                shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{new_trial_id}-{k}.png")
+                        #for k in range(n_executions):
+                        #    if checkiflossplotexists(i, j, k):
+                        #        shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{new_trial_id}-{k}.png")
+                        #    if checkifrocplotexists(i, j, k):
+                        #        shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{new_trial_id}-{k}.png")
 
                         num_trials_to_add += 1
 

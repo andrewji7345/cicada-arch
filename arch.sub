@@ -1,10 +1,10 @@
 home_path = /afs/cern.ch/work/a/aji/
-name = test_create_
-epochs = 5
-executions = 5
+name = run_bnn_unguided_
+epochs = 25
+executions = 25
 trials = -1
 parallels = 1
-jobflavour = espresso
+jobflavour = tomorrow
 config = config_condor.yml
 type = bnn
 
@@ -26,6 +26,11 @@ transfer_input_files    = archData/inputs_train.npy, \
                           archData/inputs_val.npy, \
                           archData/targets_val.npy, \
                           archData/ZB-2024-sampled-like-mc.h5, \
+                          archData/SUEP.h5, \
+                          archData/H_ToLongLived.h5, \
+                          archData/VBFHto2C.h5, \
+                          archData/TT.h5, \
+                          archData/SUSYGGBBH.h5, \
                           cicada/arch.py, \
                           cicada/arch_training.py, \
                           cicada/arch_evaluating.py, \
@@ -36,15 +41,10 @@ transfer_input_files    = archData/inputs_train.npy, \
                           cicada/cicada_training.py, \
                           cicada/cicada_evaluating.py, \
                           cicada/misc/config_condor.yml, \
-                          archData/SUEP.h5, \
-                          archData/H_ToLongLived.h5, \
-                          archData/VBFHto2C.h5, \
-                          archData/TT.h5, \
-                          archData/SUSYGGBBH.h5, \
                           arch/$(name)$(ProcId)/$(name)$(ProcId).db
 
 request_CPUs            = 1
 #request_memory          = 100000M
 +JobFlavour             = "$(jobflavour)"
 
-queue 3
+queue 25

@@ -155,8 +155,8 @@ def main(args) -> None:
                 verbose=args.verbose,
                 shuffle=True, 
             )
-            log = pd.read_csv(f"arch/{args.name}/models/{trial_id}-{execution_id}-training.log")
-            draw_execution.plot_loss_history(log["loss"], log["val_loss"], f"training-history-{trial_id}-{execution_id}")
+            #log = pd.read_csv(f"arch/{args.name}/models/{trial_id}-{execution_id}-training.log")
+            #draw_execution.plot_loss_history(log["loss"], log["val_loss"], f"training-history-{trial_id}-{execution_id}")
             
             # Evaluate the model on the test set
             auc, _ = get_aucs(model, trial_id, execution_id)
@@ -211,7 +211,7 @@ def main(args) -> None:
                 np.concatenate((y_loss, y_loss_background))
             )
 
-        draw_execution.plot_roc_curve(y_true, y_pred, [*X_signal], inputs, f"roc-{trial_id}-{execution_id}")
+        #draw_execution.plot_roc_curve(y_true, y_pred, [*X_signal], inputs, f"roc-{trial_id}-{execution_id}")
         roc_aucs, std_aucs = draw_execution.get_aucs(y_true, y_pred, use_cut_rate=True)
         return roc_aucs, std_aucs
 
@@ -305,74 +305,74 @@ def main(args) -> None:
         )
         #trial_id = len(study.get_trials())
         trial_id = i + num_existing_trials
-        if (args.type == 'cnn') and len(study.trials) < 2:
-            study.enqueue_trial({
-                "n_conv_layers": 0, 
-                "n_dense_layers": 1, 
-                "n_layers": 1, 
-                "n_dense_units_0": 4, 
-                "q_kernel_conv_bits": 12, 
-                "q_kernel_conv_ints": 3, 
-                "q_kernel_dense_bits": 8, 
-                "q_kernel_dense_ints": 1, 
-                "q_bias_dense_bits": 8, 
-                "q_bias_dense_ints": 3, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v1
-            study.enqueue_trial({
-                "n_conv_layers": 1, 
-                "n_dense_layers": 1, 
-                "n_layers": 2, 
-                "n_filters_0": 4, 
-                "kernel_width_0": 2, 
-                "kernel_height_0": 2, 
-                "stride_width_0": 2, 
-                "stride_height_0": 2, 
-                "use_bias_conv": False, 
-                "n_dense_units_0": 4, 
-                "q_kernel_conv_bits": 12, 
-                "q_kernel_conv_ints": 3, 
-                "q_kernel_dense_bits": 8, 
-                "q_kernel_dense_ints": 1, 
-                "q_bias_dense_bits": 8, 
-                "q_bias_dense_ints": 3, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v2
-        elif (args.type == 'bnn') and len(study.trials) < 2:
-            study.enqueue_trial({
-                "binary_type": "bnn", 
-                "n_conv_layers": 0, 
-                "n_dense_layers": 1, 
-                "n_layers": 1, 
-                "n_dense_units_0": 8, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v1
-            study.enqueue_trial({
-                "binary_type": "bnn", 
-                "n_conv_layers": 1, 
-                "n_dense_layers": 1, 
-                "n_layers": 2, 
-                "n_filters_0": 8, 
-                "kernel_width_0": 2, 
-                "kernel_height_0": 2, 
-                "stride_width_0": 2, 
-                "stride_height_0": 2, 
-                "use_bias_conv": False, 
-                "n_dense_units_0": 7, 
-                "q_activation_bits": 10, 
-                "q_activation_ints": 6, 
-                "shortcut": False, 
-                "dropout": 0., 
-            }) # Include cicada_v2
+        #if (args.type == 'cnn') and len(study.trials) < 2:
+        #    study.enqueue_trial({
+        #        "n_conv_layers": 0, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 1, 
+        #        "n_dense_units_0": 4, 
+        #        "q_kernel_conv_bits": 12, 
+        #        "q_kernel_conv_ints": 3, 
+        #        "q_kernel_dense_bits": 8, 
+        #        "q_kernel_dense_ints": 1, 
+        #        "q_bias_dense_bits": 8, 
+        #        "q_bias_dense_ints": 3, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #       "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v1
+        #    study.enqueue_trial({
+        #        "n_conv_layers": 1, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 2, 
+        #        "n_filters_0": 4, 
+        #        "kernel_width_0": 2, 
+        #        "kernel_height_0": 2, 
+        #        "stride_width_0": 2, 
+        #        "stride_height_0": 2, 
+        #        "use_bias_conv": False, 
+        #        "n_dense_units_0": 4, 
+        #        "q_kernel_conv_bits": 12, 
+        #        "q_kernel_conv_ints": 3, 
+        #        "q_kernel_dense_bits": 8, 
+        #        "q_kernel_dense_ints": 1, 
+        #        "q_bias_dense_bits": 8, 
+        #        "q_bias_dense_ints": 3, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v2
+        #elif (args.type == 'bnn') and len(study.trials) < 2:
+        #    study.enqueue_trial({
+        #        "binary_type": "bnn", 
+        #        "n_conv_layers": 0, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 1, 
+        #        "n_dense_units_0": 8, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v1
+        #    study.enqueue_trial({
+        #        "binary_type": "bnn", 
+        #        "n_conv_layers": 1, 
+        #        "n_dense_layers": 1, 
+        #        "n_layers": 2, 
+        #        "n_filters_0": 8, 
+        #        "kernel_width_0": 2, 
+        #        "kernel_height_0": 2, 
+        #        "stride_width_0": 2, 
+        #        "stride_height_0": 2, 
+        #        "use_bias_conv": False, 
+        #        "n_dense_units_0": 7, 
+        #        "q_activation_bits": 10, 
+        #        "q_activation_ints": 6, 
+        #        "shortcut": False, 
+        #        "dropout": 0., 
+        #    }) # Include cicada_v2
         study.optimize(lambda trial: objective(trial, trial_id), n_trials=1, n_jobs=args.parallels, show_progress_bar=False)
     print(f'Total time: {time.time() - total_start_time}')
 
