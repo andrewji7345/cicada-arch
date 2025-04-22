@@ -575,10 +575,11 @@ class Draw:
 
     def plot_2d_pareto(
         self, 
+        argname, 
         name_x: str, 
         name_y: str, 
+        num_trials_in_study: list = [],
         trial_names: list = [], 
-        argname: str = '', 
         min_pareto_length: int = 0, 
         to_enumerate: list = [], 
         label_seeds: bool = True, 
@@ -587,9 +588,16 @@ class Draw:
         zoom: bool = False, 
         name: str = 'example_objectives'
     ):
-        # Load metrics
-        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
-        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        if type(argname) == str:
+            x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+            y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        elif type(argname) == list:
+            x, y = [], []
+            num_trials_in_study_diff = np.cumsum(num_trials_in_study)
+            num_trials_in_study_diff = np.concatenate((np.array([0]), num_trials_in_study_diff))
+            for i in range(len(argname)):
+                x = x + [np.load(f'arch/{argname[i]}/trial_metrics/{name_x}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+                y = y + [np.load(f'arch/{argname[i]}/trial_metrics/{name_y}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
 
         # Optimization direction
         if "AUC" in name_x and "Loss" in name_y:
@@ -624,15 +632,15 @@ class Draw:
             # Plot Pareto front (larger markers, black edges)
             plt.scatter(
                 x_p_sorted, y_p_sorted, 
-                s=100, c=[color], edgecolors='black', label=f'Pareto {trial_names[i]}', alpha=0.8
+                s=20, c='gray', edgecolors='black', label=f'Pareto {trial_names[i]}', alpha=0.3
             )
             n += len(x_p_sorted)
 
             # Connect Pareto points with lines
-            plt.plot(
-                x_p_sorted, y_p_sorted, 
-                color=color, linestyle='-', linewidth=2, alpha=0.7
-            )
+            #plt.plot(
+            #    x_p_sorted, y_p_sorted, 
+            #    color=color, linestyle='-', linewidth=2, alpha=0.7
+            #)
 
             if show_non_pareto:
                 # Non-Pareto points (smaller markers, gray edges)
@@ -664,21 +672,30 @@ class Draw:
 
     def plot_3d_pareto_executions(
         self, 
+        argname, 
         name_x: str, 
         name_y: str, 
         name_z: str,
+        num_trials_in_study: list = [],
         trial_names: list = [], 
-        argname: str = '', 
         min_pareto_length: int = 0, 
         to_enumerate: list = [], 
         label_seeds: bool = True, 
         zoom: bool = False,
         name: str = 'example_objectives_3d'
     ):
-        # Load metrics
-        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
-        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
-        z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        if type(argname) == str:
+            x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+            y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+            z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{trial_names[i]}').flatten() for i in range(len(trial_names))]
+        elif type(argname) == list:
+            x, y, z = [], [], []
+            num_trials_in_study_diff = np.cumsum(num_trials_in_study)
+            num_trials_in_study_diff = np.concatenate((np.array([0]), num_trials_in_study_diff))
+            for i in range(len(argname)):
+                x = x + [np.load(f'arch/{argname[i]}/trial_metrics/{name_x}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+                y = y + [np.load(f'arch/{argname[i]}/trial_metrics/{name_y}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+                z = z + [np.load(f'arch/{argname[i]}/trial_metrics/{name_z}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
         
         # Optimization direction
         if "AUC" in name_x and "Loss" in name_y:
@@ -765,11 +782,13 @@ class Draw:
 
     def get_pareto_executions(
         self, 
+        argname,
+        study,
         name_x: str,
         name_y: str, 
         name_z: str, 
-        argname: str,
-        trial_names: list,
+        trial_names: list = [],
+        num_trials_in_study: list = [],
         min_pareto_length: int = 0
         ):
         """
@@ -784,11 +803,19 @@ class Draw:
             op_x, op_y = "min", "max"
         op_z = "min"
         
-        # Load metrics for each trial
-        x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{t}').flatten() for t in trial_names]
-        y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{t}').flatten() for t in trial_names]
-        z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{t}').flatten() for t in trial_names]
-
+        if type(argname) == str:
+            x = [np.load(f'arch/{argname}/trial_metrics/{name_x}/{t}').flatten() for t in trial_names]
+            y = [np.load(f'arch/{argname}/trial_metrics/{name_y}/{t}').flatten() for t in trial_names]
+            z = [np.load(f'arch/{argname}/trial_metrics/{name_z}/{t}').flatten() for t in trial_names]
+        elif type(argname) == list:
+            x, y, z = [], [], []
+            num_trials_in_study_diff = np.cumsum(num_trials_in_study)
+            num_trials_in_study_diff = np.concatenate((np.array([0]), num_trials_in_study_diff))
+            for i in range(len(argname)):
+                x = x + [np.load(f'arch/{argname[i]}/trial_metrics/{name_x}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+                y = y + [np.load(f'arch/{argname[i]}/trial_metrics/{name_y}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+                z = z + [np.load(f'arch/{argname[i]}/trial_metrics/{name_z}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten() for j in range(num_trials_in_study[i])]
+        
         # Combine data across all trials into a single DataFrame
         all_data = []
         for i, trial in enumerate(trial_names):
@@ -808,9 +835,13 @@ class Draw:
             mask[:] = False
         pareto_data = combined_data[mask]
 
-        # Load Optuna study
-        study = optuna.load_study(study_name=f"{argname}", storage=f"sqlite:///arch/{argname}/{argname}.db")
-        trials=study.get_trials()
+        # Load trials
+        if type(argname) == str:
+            trials=study.get_trials()
+        if type(argname) == list:
+            trials=[]
+            for i in range(len(argname)):
+                trials=trials+study[i].get_trials()
 
         output = []
         for _, row in pareto_data.iterrows():
@@ -1007,50 +1038,121 @@ class Draw:
         
         return [x_pareto, y_pareto, z_pareto, trials_list]
     
-    def get_3d_pareto_executions(
+    def get_3d_pareto_lite(
             self, 
             name_a: str, 
             name_b: str, 
-            trial_names: List, 
-            argname: str, 
-            study, 
+            name_c: str, 
+            argnames: list, 
+            studies: list, 
     ):
-        size = np.load(f'arch/{argname}/study_metrics/Model Size (b).npy')
-        name_c = 'Model Size (b)'
-        x = np.array([])
-        y = np.array([])
-        z = np.array([])
-        trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
-        trials_list_all = []
-        for i in range(len(trial_names)):
-            x_new = np.load(f'arch/{argname}/trial_metrics/{name_a}/{trial_names[i]}').flatten()
-            y_new = np.load(f'arch/{argname}/trial_metrics/{name_b}/{trial_names[i]}').flatten()
-            x = np.append(x, x_new)
-            y = np.append(y, y_new)
-            z = np.append(z, np.ones(x_new.shape[-1]) * size[i])
-            for j in range(x_new.shape[-1]):
-                trials_list_all.append(trials[i])
+        x, y, z = [], [], []
+        for i, argname in enumerate(argnames):
+            x.append(np.load(f'arch/{argname}/study_metrics/{name_a}').flatten())
+            y.append(np.load(f'arch/{argname}/study_metrics/{name_b}').flatten())
+            z.append(np.load(f'arch/{argname}/study_metrics/{name_c}').flatten())
+        x = np.concatenate(x)
+        y = np.concatenate(y)
+        z = np.concatenate(z)
 
-        if "AUC" in name_a and "Loss" in name_b:
+        if "AUC" in name_a and "Loss" in name_b and "Size" in name_c:
             op_x = "max"
             op_y = "min"
             op_z = "min"
-        elif "AUC" in name_b and "Loss" in name_a:
+        elif "AUC" in name_b and "Loss" in name_a and "Size" in name_c:
+            op_x = "min"
+            op_y = "max"
+            op_z = "min"
+        data = pd.DataFrame({
+            name_a: x, 
+            name_b: y, 
+            name_c: z, 
+        })
+        mask = paretoset(data, sense=[op_x, op_y, op_z])
+        pareto_data = data[mask]
+
+        x_pareto=pareto_data.get(name_a).to_numpy().flatten()
+        y_pareto=pareto_data.get(name_b).to_numpy().flatten()
+        z_pareto=pareto_data.get(name_c).to_numpy().flatten()
+        pareto_ind = np.argsort(x_pareto)
+        x_pareto=x_pareto[pareto_ind]
+        y_pareto=y_pareto[pareto_ind]
+        z_pareto=z_pareto[pareto_ind]
+        
+        trials_list = []
+        for i in range(len(studies)):
+            trials_list_temp = [trial.params for trial in studies[i].trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
+            trials_list = trials_list + trials_list_temp
+        trials_list = [params for params, keep in zip(trials_list, mask) if keep]
+        trials_list = [trials_list[i] for i in pareto_ind.tolist()]
+        
+        return [x_pareto, y_pareto, z_pareto, trials_list]
+    
+    def get_3d_pareto_executions(
+            self, 
+            argname, 
+            study, 
+            name_x: str, 
+            name_y: str, 
+            trial_names: List, 
+            num_trials_in_study: list = [],
+    ):
+        if type(argname) == str:
+            size = np.load(f'arch/{argname}/study_metrics/Model Size (b).npy')
+        elif type(argname == list):
+            size = []
+            for i in range(len(argname)):
+                size.append(np.load(f'arch/{argname[i]}/study_metrics/Model Size (b).npy'))
+            size = np.concatenate(size)
+        name_z = 'Model Size (b)'
+
+        x = np.array([])
+        y = np.array([])
+        z = np.array([])
+        if type(argname) == str:
+            trials = [trial.params for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
+            trials_list_all = []
+            for i in range(len(trial_names)):
+                x_new = np.load(f'arch/{argname}/trial_metrics/{name_x}/{trial_names[i]}').flatten()
+                y_new = np.load(f'arch/{argname}/trial_metrics/{name_y}/{trial_names[i]}').flatten()
+                x = np.append(x, x_new)
+                y = np.append(y, y_new)
+                z = np.append(z, np.ones(x_new.shape[-1]) * size[i])
+                for j in range(x_new.shape[-1]):
+                    trials_list_all.append(trials[i])
+        elif type(argname) == list:
+            trials = [trial.params for i in range(len(argname)) for trial in study[i].trials if trial.state == optuna.trial.TrialState.COMPLETE or trial.state == optuna.trial.TrialState.FAIL or trial.state == optuna.trial.TrialState.RUNNING]
+            trials_list_all = []
+            num_trials_in_study_diff = np.cumsum(num_trials_in_study)
+            num_trials_in_study_diff = np.concatenate((np.array([0]), num_trials_in_study_diff))
+            for i in range(len(argname)):
+                for j in range(num_trials_in_study[i]):
+                    x_new = np.load(f'arch/{argname[i]}/trial_metrics/{name_x}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten()
+                    y_new = np.load(f'arch/{argname[i]}/trial_metrics/{name_y}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten()
+                    z_new = np.load(f'arch/{argname[i]}/trial_metrics/{name_z}/{trial_names[j + num_trials_in_study_diff[i]]}').flatten()
+                    for k in range(x_new.shape[-1]):
+                        trials_list_all.append(trials[j + num_trials_in_study_diff[i]])
+
+        if "AUC" in name_x and "Loss" in name_y:
+            op_x = "max"
+            op_y = "min"
+            op_z = "min"
+        elif "AUC" in name_y and "Loss" in name_x:
             op_x = "min"
             op_y = "max"
             op_z = "min"
         
         pareto_set = []
         data = pd.DataFrame({
-            name_a: x, 
-            name_b: y, 
-            name_c: z,  
+            name_x: x, 
+            name_y: y, 
+            name_z: z,  
         })
         mask = paretoset(data, sense=[op_x, op_y, op_z])
         pareto_data = data[mask]
-        x_pareto=pareto_data.get(name_a).to_numpy().flatten()
-        y_pareto=pareto_data.get(name_b).to_numpy().flatten()
-        z_pareto=pareto_data.get(name_c).to_numpy().flatten()
+        x_pareto=pareto_data.get(name_x).to_numpy().flatten()
+        y_pareto=pareto_data.get(name_y).to_numpy().flatten()
+        z_pareto=pareto_data.get(name_z).to_numpy().flatten()
         pareto_ind = np.argsort(x_pareto)
         x_pareto=x_pareto[pareto_ind]
         y_pareto=y_pareto[pareto_ind]

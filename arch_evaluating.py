@@ -146,110 +146,75 @@ def main(args):
             'Model Size (b)',                   'SUSY ggHbb AUC (0.3-3 kHz)',         'VBHF to 2C AUC (0.3-3 kHz)',
         }
         
-        # Copy the first study
-        first_id=0
-        for i in range(batchsize):
-            if checkifrunexists(i) == True:
-                first_id = i
-                break
+        if not args.lite:
+            # Copy the first study
+            first_id=0
+            for i in range(batchsize):
+                if checkifrunexists(i) == True:
+                    first_id = i
+                    break
 
-        optuna.copy_study(from_study_name=f'{fromname}{first_id}', from_storage=f'sqlite:///arch/{fromname}{first_id}/{fromname}{first_id}.db', to_storage=f'sqlite:///arch/{argname}/{argname}.db', to_study_name=argname)
-        base_study = optuna.load_study(study_name=argname, storage=f'sqlite:///arch/{argname}/{argname}.db')
-        shutil.copyfile(f"arch/{fromname}{first_id}/args.txt", f"arch/{argname}/args.txt")
-        
-        # Dictionary to track trials based on hyperparameters
-        existing_trials = {tuple(trial.params.items()): trial for trial in base_study.get_trials()}
-        num_trials_to_add = len(existing_trials)
+            optuna.copy_study(from_study_name=f'{fromname}{first_id}', from_storage=f'sqlite:///arch/{fromname}{first_id}/{fromname}{first_id}.db', to_storage=f'sqlite:///arch/{argname}/{argname}.db', to_study_name=argname)
+            base_study = optuna.load_study(study_name=argname, storage=f'sqlite:///arch/{argname}/{argname}.db')
+            shutil.copyfile(f"arch/{fromname}{first_id}/args.txt", f"arch/{argname}/args.txt")
+            
+            # Dictionary to track trials based on hyperparameters
+            existing_trials = {tuple(trial.params.items()): trial for trial in base_study.get_trials()}
+            num_trials_to_add = len(existing_trials)
 
-        # Copy initial trial metric files, execution plots
-        trial_names = os.listdir(f'arch/{fromname}{first_id}/trial_metrics/Validation Loss')
-        trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
-        trial_names_temp_ind = np.argsort(trial_names_temp)
-        trial_names = [trial_names[i] for i in trial_names_temp_ind]
-        for trial_metric_name in trial_metric_names:
-            for trial_name in trial_names:
-                shutil.copyfile(f"arch/{fromname}{first_id}/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
-        #for trial_name in trial_names:
-            #trial_num = trial_name.replace('.npy', '')
-            #n_executions = len([path for path in Path(f'arch/{fromname}{first_id}/execution_plots').glob(f'roc-{trial_num}-*.png')])
-            #for i in range(n_executions):
-            #    if checkiflossplotexists(first_id, trial_num, i):
-            #        shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/training-history-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/training-history-{trial_num}-{i}.png")
-            #    if checkifrocplotexists(first_id, trial_num, i):
-            #        shutil.copyfile(f"arch/{fromname}{first_id}/execution_plots/roc-{trial_num}-{i}.png", f"arch/{argname}/execution_plots/roc-{trial_num}-{i}.png")
+            # Copy initial trial metric files, execution plots
+            trial_names = os.listdir(f'arch/{fromname}{first_id}/trial_metrics/Validation Loss')
+            trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
+            trial_names_temp_ind = np.argsort(trial_names_temp)
+            trial_names = [trial_names[i] for i in trial_names_temp_ind]
+            for trial_metric_name in trial_metric_names:
+                for trial_name in trial_names:
+                    shutil.copyfile(f"arch/{fromname}{first_id}/trial_metrics/{trial_metric_name}/{trial_name}", f"arch/{argname}/trial_metrics/{trial_metric_name}/{trial_name}")
+            
+            # Process remaining studies
+            for i in range(first_id+1, batchsize):
+                if checkifrunexists(i):
+                    study_tmp = optuna.load_study(study_name=f'{fromname}{i}', storage=f'sqlite:///arch/{fromname}{i}/{fromname}{i}.db')
 
-        # Process remaining studies
-        for i in range(first_id+1, batchsize):
-            if checkifrunexists(i):
-                study_tmp = optuna.load_study(study_name=f'{fromname}{i}', storage=f'sqlite:///arch/{fromname}{i}/{fromname}{i}.db')
+                    for j in range(len(study_tmp.get_trials())):
+                        trial = study_tmp.get_trials()[j]
+                        trial_params = tuple(trial.params.items())  # Convert params to tuple for hashing
 
-                for j in range(len(study_tmp.get_trials())):
-                    trial = study_tmp.get_trials()[j]
-                    trial_params = tuple(trial.params.items())  # Convert params to tuple for hashing
+                        if trial_params in existing_trials:
+                            # Concatenate trial metric data instead of adding a new trial
+                            existing_trial_id = existing_trials[trial_params].number # might not work
+                            existing_trial_file = f"{existing_trial_id}.npy"
 
-                    if trial_params in existing_trials:
-                        # Concatenate trial metric data instead of adding a new trial
-                        existing_trial_id = existing_trials[trial_params].number # might not work
-                        existing_trial_file = f"{existing_trial_id}.npy"
+                            for trial_metric_name in trial_metric_names:
+                                old_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{existing_trial_file}"
+                                new_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
 
-                        for trial_metric_name in trial_metric_names:
-                            old_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{existing_trial_file}"
-                            new_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
+                                if os.path.exists(new_file):
+                                    old_data = np.load(old_file) if os.path.exists(old_file) else np.array([])
+                                    new_data = np.load(new_file)
+                                    np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
+                            
+                        else:
+                            # Copy metric files and add trial to study
+                            new_trial_id = num_trials_to_add
+                            existing_trials[trial_params] = trial
 
-                            if os.path.exists(new_file):
-                                old_data = np.load(old_file) if os.path.exists(old_file) else np.array([])
-                                new_data = np.load(new_file)
-                                np.save(old_file, np.concatenate([old_data.flatten(), new_data.flatten()]))
-                        
-                        #old_trial_id = existing_trial_file.replace(".npy", "")
-                        #n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
-                        #n_executions_existing = len([path for path in Path(f'arch/{argname}/execution_plots').glob(f'roc-{old_trial_id}-*.png')])
+                            base_study.add_trial(trial)
 
-                        #def extract_execution_num(path):
-                        #    match = re.search(rf'(\d+)\.npy', path.name)
-                        #    return int(match.group(1)) if match else -1
+                            for trial_metric_name in trial_metric_names:
+                                from_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
+                                to_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{new_trial_id}.npy"
 
-                        #paths = sorted(Path(f'arch/{fromname}{i}/trial_metrics').glob(f'*.npy'), key=extract_execution_num)
-                        #if len(paths) == 0: print(j); continue
-                        #last_filename = paths[-1].name
-                        #n_executions = len(np.load(f'arch/{fromname}{i}/trial_metrics/{last_filename}'))
-                        #n_executions = int(re.search(rf'roc-{j}-(\d+)\.png', last_filename).group(1))
+                                if os.path.exists(from_file):
+                                    shutil.copyfile(from_file, to_file)
 
-                        #paths_existing = sorted(Path(f'arch/{argname}/trial_metrics').glob(f'*.npy'), key=extract_execution_num)
-                        #last_filename_existing = paths_existing[-1].name
-                        #n_executions_existing = len(np.load(f'arch/{fromname}{i}/trial_metrics/{last_filename_existing}'))
-                        #n_executions_existing = int(re.search(rf'roc-{old_trial_id}-(\d+)\.png', last_filename_existing).group(1))
-
-                        #for k in range(n_executions):
-                        #    shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{old_trial_id}-{k + n_executions_existing}.png")
-                        #    shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{old_trial_id}-{k + n_executions_existing}.png")
-
-                    else:
-                        # Copy metric files and add trial to study
-                        new_trial_id = num_trials_to_add
-                        existing_trials[trial_params] = trial
-
-                        base_study.add_trial(trial)
-
-                        for trial_metric_name in trial_metric_names:
-                            from_file = f"arch/{fromname}{i}/trial_metrics/{trial_metric_name}/{trial.number}.npy"
-                            to_file = f"arch/{argname}/trial_metrics/{trial_metric_name}/{new_trial_id}.npy"
-
-                            if os.path.exists(from_file):
-                                shutil.copyfile(from_file, to_file)
-
-                        #n_executions = len([path for path in Path(f'arch/{fromname}{i}/execution_plots').glob(f'roc-{j}-*.png')])
-                        
-                        #for k in range(n_executions):
-                        #    if checkiflossplotexists(i, j, k):
-                        #        shutil.copyfile(f"arch/{fromname}{i}/execution_plots/training-history-{j}-{k}.png", f"arch/{argname}/execution_plots/training-history-{new_trial_id}-{k}.png")
-                        #    if checkifrocplotexists(i, j, k):
-                        #        shutil.copyfile(f"arch/{fromname}{i}/execution_plots/roc-{j}-{k}.png", f"arch/{argname}/execution_plots/roc-{new_trial_id}-{k}.png")
-
-                        num_trials_to_add += 1
+                            num_trials_to_add += 1
 
     def search_plots():
-        all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
+        if not args.lite:
+            all_names = [name for name in os.listdir(f'arch/{args.name}/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.name}/study_metrics', name))]
+        else:
+            all_names = [name for name in os.listdir(f'arch/{args.fromname}0/study_metrics') if os.path.isfile(os.path.join(f'arch/{args.fromname}0/study_metrics', name))]
         min_names = [name for name in all_names if (('AUC' not in name) and ('Min' in name))]
         med_names = [name for name in all_names if (('AUC' not in name) and ('Median' in name))]
         std_names = [name for name in all_names if (('AUC' not in name) and ('Standard Deviation' in name))]
@@ -272,134 +237,77 @@ def main(args):
             to_enumerate = ['Cicada V1 (search)', 'Cicada V2 (search)']
 
         pareto_3d_trials = []
-        loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
-        for ((name_a, name_b, name_c), (std_name_a, std_name_b, std_name_c)) in zip(name_triples, std_triples):
-            draw_study.plot_3d_pareto(name_a, name_b, name_c, std_name_a, std_name_b, std_name_c, args.name, label_seeds=False, name=f'{args.name}-all-and-pareto-{name_a.replace(".npy", "")}-{name_b.replace(".npy", "")}-{name_c.replace(".npy", "")}')
-            pareto_3d_trials.append([name_a, name_b, name_c] + draw_study.get_3d_pareto(name_a, name_b, name_c, args.name, loaded_study))
+        if not args.lite:
+            loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
+            for ((name_a, name_b, name_c), (std_name_a, std_name_b, std_name_c)) in zip(name_triples, std_triples):
+                draw_study.plot_3d_pareto(name_a, name_b, name_c, std_name_a, std_name_b, std_name_c, args.name, label_seeds=False, name=f'{args.name}-all-and-pareto-{name_a.replace(".npy", "")}-{name_b.replace(".npy", "")}-{name_c.replace(".npy", "")}')
+                pareto_3d_trials.append([name_a, name_b, name_c] + draw_study.get_3d_pareto(name_a, name_b, name_c, args.name, loaded_study))
+        else:
+            argnames = [f'{args.fromname}{i}' for i in range(args.batch)]
+            loaded_studies = [optuna.load_study(study_name=f'{args.fromname}{i}', storage=f"sqlite:///arch/{args.fromname}{i}/{args.fromname}{i}.db") for i in range(args.batch)]
+            for ((name_a, name_b, name_c), (std_name_a, std_name_b, std_name_c)) in zip(name_triples, std_triples):
+                draw_study.plot_3d_pareto(name_a=name_a, name_b=name_b, name_c=name_c, std_name_a=std_name_a, std_name_b=std_name_b, std_name_c=std_name_c, argname=argnames, studies=loaded_studies, label_seeds=False, name=f'{args.name}-all-and-pareto-{name_a.replace(".npy", "")}-{name_b.replace(".npy", "")}-{name_c.replace(".npy", "")}')
+                pareto_3d_trials.append([name_a, name_b, name_c] + draw_study.get_3d_pareto_lite(name_a, name_b, name_c, argnames, loaded_studies))
 
         return pareto_3d_trials
 
     def trial_plots():
-        names = [name for name in os.listdir(f'arch/{args.name}/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.name}/trial_metrics', name)) and ('AUC' not in name) and ('Model Size' not in name))]
-        auc_names = [name for name in os.listdir(f'arch/{args.name}/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.name}/trial_metrics', name)) and ('AUC' in name) and ('Model Size' not in name))]
+        if not args.lite:
+            names = [name for name in os.listdir(f'arch/{args.name}/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.name}/trial_metrics', name)) and ('AUC' not in name) and ('Model Size' not in name))]
+            auc_names = [name for name in os.listdir(f'arch/{args.name}/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.name}/trial_metrics', name)) and ('AUC' in name) and ('Model Size' not in name))]
+        else:
+            names = [name for name in os.listdir(f'arch/{args.fromname}0/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.fromname}0/trial_metrics', name)) and ('AUC' not in name) and ('Model Size' not in name))]
+            auc_names = [name for name in os.listdir(f'arch/{args.fromname}0/trial_metrics') if (os.path.isdir(os.path.join(f'arch/{args.fromname}0/trial_metrics', name)) and ('AUC' in name) and ('Model Size' not in name))]
         name_pairs = []
         for i in range(len(names)):
             for j in range(i+1, len(names)):
                 name_pairs.append((names[i], names[j]))
             for j in range(len(auc_names)):
                 name_pairs.append((names[i], auc_names[j]))
-        trial_names = os.listdir(f'arch/{args.name}/trial_metrics/Validation Loss')
-        trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
-        trial_names_temp_ind = np.argsort(trial_names_temp)
-        trial_names = [trial_names[i] for i in trial_names_temp_ind]
+        if not args.lite:
+            trial_names = os.listdir(f'arch/{args.name}/trial_metrics/Validation Loss')
+            trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names])
+            trial_names_temp_ind = np.argsort(trial_names_temp)
+            trial_names = [trial_names[i] for i in trial_names_temp_ind]
+        else:
+            trial_names=[]
+            num_trials_in_study = []
+            for i in range(args.batch):
+                trial_names_study = os.listdir(f'arch/{args.fromname}{i}/trial_metrics/Validation Loss')
+                trial_names_temp = np.array([int(trial_name.replace('.npy', '')) for trial_name in trial_names_study])
+                num_trials_in_study.append(len(trial_names_temp))
+                trial_names_temp_ind = np.argsort(trial_names_temp)
+                trial_names = trial_names + [trial_names_study[i] for i in trial_names_temp_ind]
 
         pareto_3d_executions = []
         pareto_3d_executions_global = []
-        loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
-        for (name_a, name_b) in name_pairs:
-            for trial_name in trial_names:
-                draw_trial.plot_2d_pareto(name_a, name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, show_legend=True, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
-            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
-            draw_trial.plot_2d_pareto(name_a, name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=True, name=f'{args.name}-all-trials-all-and-pareto-zoom-{name_a}-{name_b}')
-            draw_trial.plot_3d_pareto_executions(name_a, name_b, f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=False, name=f'{args.name}-all-trials-and-pareto-over-all-trials-{name_a}-{name_b}')
-            draw_trial.plot_3d_pareto_executions(name_a, name_b, f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=True, name=f'{args.name}-all-trials-and-pareto-over-all-trials-zoom-{name_a}-{name_b}')
-            pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_a, name_b, trial_names, args.name, loaded_study))
-            pareto_3d_executions_global.append([name_a] + [name_b] + draw_trial.get_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', argname=args.name, trial_names=trial_names))
+        if not args.lite:
+            loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
+            for (name_a, name_b) in name_pairs:
+                for trial_name in trial_names:
+                    draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, show_legend=False, zoom = False, name=f'{args.name}-{trial_name}-all-and-pareto-{name_a}-{name_b}')
+                    draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=[trial_name], argname=args.name, label_seeds=False, show_non_pareto=True, show_legend=False, zoom = True, name=f'{args.name}-{trial_name}-all-and-pareto-zoom-{name_a}-{name_b}')
+                draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+                draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=trial_names, argname=args.name, min_pareto_length=3, label_seeds=False, show_non_pareto=False, show_legend=False, zoom=True, name=f'{args.name}-all-trials-all-and-pareto-zoom-{name_a}-{name_b}')
+                draw_trial.plot_3d_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=False, name=f'{args.name}-all-trials-and-pareto-over-all-trials-{name_a}-{name_b}')
+                draw_trial.plot_3d_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', trial_names=trial_names, argname=args.name, min_pareto_length=0, label_seeds=False, zoom=True, name=f'{args.name}-all-trials-and-pareto-over-all-trials-zoom-{name_a}-{name_b}')
+                pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_x=name_a, name_y=name_b, trial_names=trial_names, argname=args.name, study=loaded_study))
+                pareto_3d_executions_global.append([name_a] + [name_b] + draw_trial.get_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', argname=args.name, study=loaded_study, trial_names=trial_names))
+        else:
+            argnames = [f'{args.fromname}{i}' for i in range(args.batch)]
+            loaded_studies = [optuna.load_study(study_name=f'{args.fromname}{i}', storage=f"sqlite:///arch/{args.fromname}{i}/{args.fromname}{i}.db") for i in range(args.batch)]
+            for (name_a, name_b) in name_pairs:
+                draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=trial_names, num_trials_in_study=num_trials_in_study, argname=argnames, show_non_pareto=False, show_legend=False, zoom=False, name=f'{args.name}-all-trials-all-and-pareto-{name_a}-{name_b}')
+                draw_trial.plot_2d_pareto(name_x=name_a, name_y=name_b, trial_names=trial_names, num_trials_in_study=num_trials_in_study, argname=argnames, show_non_pareto=False, show_legend=False, zoom=True, name=f'{args.name}-all-trials-all-and-pareto-zoom-{name_a}-{name_b}')
+                print('finished plot_2d_pareto')
+                draw_trial.plot_3d_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', trial_names=trial_names, num_trials_in_study=num_trials_in_study, argname=argnames, min_pareto_length=0, label_seeds=False, zoom=False, name=f'{args.name}-all-trials-and-pareto-over-all-trials-{name_a}-{name_b}')
+                draw_trial.plot_3d_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', trial_names=trial_names, num_trials_in_study=num_trials_in_study, argname=argnames, min_pareto_length=0, label_seeds=False, zoom=True, name=f'{args.name}-all-trials-and-pareto-over-all-trials-zoom-{name_a}-{name_b}')
+                print('finished plot_3d_pareto_executions')
+                pareto_3d_executions.append([name_a, name_b] + draw_trial.get_3d_pareto_executions(name_x=name_a, name_y=name_b, trial_names=trial_names, num_trials_in_study=num_trials_in_study, argname=argnames, study=loaded_studies))
+                print('finished get_3d_pareto_executions')
+                pareto_3d_executions_global.append([name_a] + [name_b] + draw_trial.get_pareto_executions(name_x=name_a, name_y=name_b, name_z=f'Model Size (b)', argname=argnames, study=loaded_studies, trial_names=trial_names, num_trials_in_study=num_trials_in_study))
+                print('finished get_pareto_executions')
         return pareto_3d_executions, pareto_3d_executions_global
-
-    def evaluate_teacher(teacher):
-        aucs, sizes, val_losses = [], [], []
-        log = pd.read_csv(f"arch/{args.name}/models/{teacher.name}/training.log")
-        draw_trial.plot_loss_history(
-            log["loss"], log["val_loss"], f"training-history-{teacher.name}"
-        )
-
-        y_pred_background_teacher = teacher.predict(X_test, batch_size=512, verbose=args.verbose)
-        y_loss_background_teacher = loss(X_test, y_pred_background_teacher)
-
-        teacher_results = dict()
-        teacher_results["2024 Zero Bias"] = y_loss_background_teacher
-
-        y_true = []
-        y_pred_teacher = []
-        inputs = []
-        for name, data in X_signal.items():
-            inputs.append(np.concatenate((data, X_test)))
-
-            y_loss_signal_teacher = loss(
-                data, teacher.predict(data, batch_size=512, verbose=args.verbose)
-            )
-
-            teacher_results[name] = y_loss_signal_teacher
-
-            y_true.append(
-                np.concatenate((np.ones(data.shape[0]), np.zeros(X_test.shape[0])))
-            )
-            y_pred_teacher.append(
-                np.concatenate((y_loss_signal_teacher, y_loss_background_teacher))
-            )
-
-        draw_trial.plot_anomaly_score_distribution(
-            list(teacher_results.values()),
-            [*teacher_results],
-            f"anomaly-score-{teacher.name}",
-        )
-        draw_trial.plot_roc_curve(y_true, y_pred_teacher, [*X_signal], inputs, f"roc-{teacher.name}")
-        roc_aucs, _ = draw_study.get_aucs(y_true, y_pred_teacher, use_cut_rate=True)
-        aucs.append(np.power([10.], np.mean(roc_aucs)))
-        sizes.append(1000)
-        val_losses.append(log["val_loss"].to_numpy()[-1])
-
-        return aucs, sizes, val_losses
-
-    def evaluate_students(student_models):
-        aucs, sizes, val_losses = [], [], []
-        for student in student_models:
-            log = pd.read_csv(f"arch/{args.name}/models/{student.name}/training.log")
-            draw_trial.plot_loss_history(
-                log["loss"], log["val_loss"], f"training-history-{student.name}"
-            )
-            
-            y_loss_background_student = student.predict(
-                X_test.reshape(-1, 252, 1), batch_size=512, verbose=args.verbose
-            )
-
-            student_results = dict()
-            student_results["2024 Zero Bias"] = y_loss_background_student
-
-            y_true = []
-            y_pred_student = []
-            inputs = []
-            for name, data in X_signal.items():
-                inputs.append(np.concatenate((data, X_test)))
-
-                y_loss_signal_student = student.predict(
-                    data.reshape(-1, 252, 1), batch_size=512, verbose=args.verbose
-                )
-
-                student_results[name] = y_loss_signal_student
-
-                y_true.append(
-                    np.concatenate((np.ones(data.shape[0]), np.zeros(X_test.shape[0])))
-                )
-
-                y_pred_student.append(
-                    np.concatenate((y_loss_signal_student, y_loss_background_student))
-                )
-        
-            draw_trial.plot_anomaly_score_distribution(
-                list(student_results.values()),
-                [*student_results],
-                f"anomaly-score-{student.name}",
-            )
-
-            draw_trial.plot_roc_curve(y_true, y_pred_student, [*X_signal], inputs, f"roc-{student.name}")
-            roc_aucs, _ = draw_study.get_aucs(y_true, y_pred_student, use_cut_rate=True)
-            aucs.append(np.power([10.], np.mean(roc_aucs)))
-            sizes.append(student.count_params())
-            val_losses.append(log["val_loss"].to_numpy()[-1])
-
-        return aucs, sizes, val_losses
 
     # Get labels
     labels = [
@@ -420,116 +328,10 @@ def main(args):
         compile_batch_study_metrics(args.name, args.fromname, args.batch)
     compile_study_metrics(args.name)
     best_executions, best_executions_global = trial_plots()
-    best_trials = search_plots()
+    return
+    if not args.lite:
+        best_trials = search_plots()
     write_executions_to_csv(best_executions_global)
-
-    if args.search_only == True:
-        return
-
-    # Load old models
-    for fromname, toname in [
-        ['teacher', f'arch/{args.name}/models/teacher'], 
-        ['cicada-v1', f'arch/{args.name}/models/cicada-v1'], 
-        ['cicada-v2', f'arch/{args.name}/models/cicada-v2'], 
-    ]:
-        if not os.path.isdir(toname):
-            shutil.copytree(f'{args.input}/{fromname}', toname)
-
-    gen, X_train, y_train, X_val, y_val, X_test, X_signal = get_data_npy(config)
-
-    # Load study and best trials (use if had search)
-    loaded_study = optuna.load_study(study_name=args.name, storage=f"sqlite:///arch/{args.name}/{args.name}.db")
-    pareto_trials = loaded_study.best_trials
-    pareto_params = [trial.params for trial in pareto_trials]
-
-    # (use if want to train specific archs)
-    #pareto_params = [
-    # for cnn
-    #    {'n_conv_layers': 1, 'n_filters_0': 5, 'n_dense_layers': 1, 'n_dense_units_0': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 6, 'n_dense_layers': 1, 'n_dense_units_0': 13}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 7, 'n_dense_layers': 1, 'n_dense_units_0': 11}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 6, 'n_dense_layers': 1, 'n_dense_units_0': 13}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 2, 'n_dense_units_0': 15, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 5, 'n_dense_layers': 2, 'n_dense_units_0': 12, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 6, 'n_dense_layers': 2, 'n_dense_units_0': 11, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 7, 'n_dense_layers': 2, 'n_dense_units_0': 10, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 8, 'n_dense_layers': 2, 'n_dense_units_0': 9, 'n_dense_units_1': 16}, # Final model 1
-    #    {'n_conv_layers': 1, 'n_filters_0': 9, 'n_dense_layers': 2, 'n_dense_units_0': 8, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 10, 'n_dense_layers': 2, 'n_dense_units_0': 7, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 2, 'n_dense_units_0': 16, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 3, 'n_dense_units_0': 16, 'n_dense_units_1': 16, 'n_dense_units_2': 16}, # Final model 2
-    #    {'n_conv_layers': 0, 'n_dense_layers': 4, 'n_dense_units_0': 16, 'n_dense_units_1': 16, 'n_dense_units_2': 16, 'n_dense_units_3': 16}, 
-    #    in cnn_skip, cnn_skip_1, cnn_skip_2, cnn_skip_3
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'shortcut': True}, 
-    #    in cnn_drop
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 20}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 10}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 6}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 5}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 4}, 
-    #    {'n_conv_layers': 1, 'n_filters_0': 4, 'n_dense_layers': 1, 'n_dense_units_0': 16, 'dropout': 3}, 
-    #    in cnn_quant
-    #    {"q_kernel_conv": quantized_bits(12, 3, 1, alpha=1.0), "q_kernel_dense": quantized_bits(8, 1, 1, alpha=1.0), "q_bias_dense": quantized_bits(8, 3, 1, alpha=1.0), "q_activation": "quantized_relu(10, 6)"}, 
-    #    {"q_kernel_conv": quantized_bits(8, 4, 1, alpha=1.0), "q_kernel_dense": quantized_bits(8, 4, 1, alpha=1.0), "q_bias_dense": quantized_bits(8, 4, 1, alpha=1.0), "q_activation": "quantized_relu(8, 4)"}, 
-    #    {"q_kernel_conv": quantized_bits(16, 8, 1, alpha=1.0), "q_kernel_dense": quantized_bits(16, 8, 1, alpha=1.0), "q_bias_dense": quantized_bits(16, 8, 1, alpha=1.0), "q_activation": "quantized_relu(16, 8)"}, 
-    #    {"q_kernel_conv": quantized_bits(32, 16, 1, alpha=1.0), "q_kernel_dense": quantized_bits(32, 16, 1, alpha=1.0), "q_bias_dense": quantized_bits(32, 16, 1, alpha=1.0), "q_activation": "quantized_relu(32, 16)"}, 
-    # for bnn
-    #    {'n_conv_layers': 0, 'n_dense_layers': 2, 'n_dense_units_0': 16, 'n_dense_units_1': 16}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 3, 'n_dense_units_0': 16, 'n_dense_units_1': 16, 'n_dense_units_2': 16}, 
-    # for bitbnn
-    #    in bitbnn_1
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 10}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 2, 'n_dense_units_0': 10, 'n_dense_units_1': 10}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 3, 'n_dense_units_0': 10, 'n_dense_units_1': 10, 'n_dense_units_2': 10}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 11}, 
-    #    in bitbnn_2, bit_bnn_3
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 5}, # not in bitbnn_3
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 6}, # not in bitbnn_3
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 7}, # not in bitbnn_3
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 8}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 9}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 10}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 11}, 
-    #    {'n_conv_layers': 0, 'n_dense_layers': 1, 'n_dense_units_0': 12}, # not in bitbnn_3
-    #    in bitbnn_conv
-    #    {'n_conv_layers': 1, 'n_filters': [4], 'n_dense_layers': 1, 'n_dense_units': [4], 'shortcut': True}, 
-    #    {'n_conv_layers': 1, 'n_filters': [4], 'n_dense_layers': 1, 'n_dense_units': [6], 'shortcut': True}, 
-    #    {'n_conv_layers': 1, 'n_filters': [4], 'n_dense_layers': 1, 'n_dense_units': [8], 'shortcut': True}, 
-    #    {'n_conv_layers': 1, 'n_filters': [4], 'n_dense_layers': 1, 'n_dense_units': [10], 'shortcut': True}, 
-    #]
-
-    trial_models = []
-    for params in pareto_params:
-        for i in range(args.executions):
-            model_name = '_'.join(str(x) + '_' + str(y) for x, y in params.items())
-            model_name = model_name + f"_x_{i}"
-            model_name = model_name.replace('[', '').replace(']', '').replace(',', '_').replace(' ', '').replace('(', '_').replace(')', '_').replace('_alpha=1.0', '')
-            trial_models.append(load_model(f'arch/{args.name}/models/{model_name}'))
-
-    # Load models
-    teacher = load_model(f"arch/{args.name}/models/teacher")
-    cicada_v1 = load_model(f"arch/{args.name}/models/cicada-v1")
-    cicada_v2 = load_model(f"arch/{args.name}/models/cicada-v2")
-    student_models = [cicada_v1, cicada_v2] + trial_models
-
-    # Evaluate teacher
-    aucs_teacher, sizes_teacher, val_losses_teacher = evaluate_teacher(teacher)
-    
-    # Evaluate students
-    aucs_students, sizes_students, val_losses_students = evaluate_students(student_models)
-
-    aucs = aucs_teacher + aucs_students
-    sizes = sizes_teacher + sizes_students
-    val_losses = val_losses_teacher + val_losses_students
-    
-    if args.type == 'cnn':
-        to_enumerate = ['Teacher', 'Cicada V1', 'Cicada V2']
-    else: to_enumerate = []
-
-    draw_study.plot_2d(sizes, aucs, xlabel='Model Size', ylabel='Mean AUC (<3 kHz)', to_enumerate=to_enumerate, label_seeds=False, name=f'{args.name}-scatter-size-auc-all')
-    draw_study.plot_2d(sizes, val_losses, xlabel='Model Size', ylabel='Validation Loss', to_enumerate=to_enumerate, label_seeds=False, name=f'{args.name}-scatter-size-loss-all')
-    draw_study.plot_2d(val_losses, aucs, xlabel='Validation Loss', ylabel='Mean AUC (<3 kHz)', to_enumerate=to_enumerate, label_seeds=False, name=f'{args.name}-scatter-loss-auc-all')
-    draw_study.plot_3d(val_losses, aucs, sizes, xlabel='Validation Loss', ylabel='Mean AUC (<3 kHz)', zlabel='Model Size', to_enumerate=to_enumerate, label_seeds=False, name=f'{args.name}-scatter-loss-auc-size-all')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="""CICADA evaluation scripts""")
@@ -602,12 +404,6 @@ if __name__ == "__main__":
         default=False,
     )
     parser.add_argument(
-        "--search_only", "-s",
-        type=bool,
-        default=True,
-        help="Only evaluate the search? Either True or False",
-    )
-    parser.add_argument(
         "-b", "--batch",
         type=int, 
         help="Number of batch jobs to parse. If not a batch job, 0.", 
@@ -619,7 +415,13 @@ if __name__ == "__main__":
         default="example",
         help="Name of studies to read from (w/o index)",
     )
+    parser.add_argument(
+        "--lite", "-l",
+        type=int,
+        default="0",
+        help="To only plot trial and study plots, but skip combining studies and copying plots/metrics. Only use if is also a batch job.",
+    )
     new_args = parser.parse_args()
     if new_args.batch != None: loaded_args = ['--config'] + ['misc/config.yml'] + ['--type'] + ['cnn'] + ['--epochs'] + ['25'] + ['--executions'] + ['50'] + ['--trials'] + ['-1'] + ['--parallels'] + ['1'] + ['--jobflavour'] + ['workday']
     else: loaded_args = load_args(new_args.name)
-    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--fromname'] + [f'{new_args.fromname}'] + ['--batch'] + [f"{new_args.batch}"] + ['--search_only'] + [f"{new_args.search_only}"] + loaded_args))
+    main(parser.parse_args(['--name'] + [f"{new_args.name}"] + ['--fromname'] + [f'{new_args.fromname}'] + ['--batch'] + [f"{new_args.batch}"] + ['--lite'] + [f"{new_args.lite}"] + loaded_args))
